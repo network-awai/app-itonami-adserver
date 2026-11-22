@@ -27,9 +27,9 @@
 ;; Inc. (United States). foreign-info-url is the app's own foreign-information
 ;; page, section #us: site/foreign-info.html, published byte-identical in
 ;; network-awai/app-disclosures at the permanent URL below (folder = package
-;; id). It is not the PPC list page. The app
-;; stores no permission; the withdrawal place is the app's 設定 › 許可した送信
-;; screen, which says so.
+;; id). It is not the PPC list page. The read is one-time and nothing is
+;; saved, so there is no withdrawal place: the runtime (kotoba#1372) says the
+;; permission is for this one time only and is not kept (Legal, 2026-11-22).
 (def foreign-info-url
   "Permanent; Decision 2026-11-22 (KOTOBA-159)."
   "https://disclosures.awai.network/network.itonami.koukokuscout/foreign-info.html#us")
@@ -38,8 +38,7 @@
   {:recipient "GitHub, Inc." :country "US" :country-name "アメリカ合衆国"
    :foreign-info-url foreign-info-url
    :data ["端末の IP アドレス" "送信の時刻" "ブラウザの種類と版"] :special-care false
-   :purpose "公開された広告主の一覧を GitHub から読み、この端末で表示するため" :frequency "one-time"
-   :withdrawal "設定 › 許可した送信"})
+   :purpose "公開された広告主の一覧を GitHub から読み、この端末で表示するため" :frequency "one-time"})
 
 (def operations
   [{:capability capability :service service :operation "read-public-export" :consent "each-operation"

@@ -23,7 +23,8 @@
     (doseq [op (:operations (d/descriptor))]
       (a/deepEqual (vec (runtime/clientDisclosureProblems (:disclosure op))) [] (:operation op))
       (a/notEqual (:recipient (:disclosure op)) "TBD" "the recipient is owner input, not a placeholder")
-      (a/equal (:withdrawal (:disclosure op)) "設定 › 許可した送信")
+      (a/equal (:frequency (:disclosure op)) "one-time")
+      (a/equal (js/Object.hasOwn (:disclosure op) "withdrawal") false "one-time: nothing to withdraw, and no settings screen")
       (when (not= "JP" (:country (:disclosure op)))
         (a/equal (:foreign-info-url (:disclosure op)) "https://disclosures.awai.network/network.itonami.koukokuscout/foreign-info.html#us" "the app's own page on the disclosures site, folder = package id")))
     (a/deepEqual (:operations (:descriptor host-data)) (js/JSON.parse (js/JSON.stringify (:operations (d/descriptor)))))))
@@ -54,9 +55,9 @@
 (test "the host serves the byte-exact pinned runtime, and the guest carries none of it"
   (fn []
     (let [pins (js/JSON.parse (fs/readFileSync "vendor/PINS.json" "utf8"))]
-      (a/equal (:revision pins) "a1b90e38c9e5334facfa993062e237299c70de10")
+      (a/equal (:revision pins) "715b8e5f5caadbc9aee9c04c1b2471006ffcf666")
       (a/equal (sha (fs/readFileSync "dist/vendor/kotoba-client-runtime.js")) (get-in pins [:files "kotoba-client-runtime.js"]))
-      (a/equal (get-in pins [:files "kotoba-client-runtime.js"]) "d6f67c058c5c40fc56fe500648dc79704a2eee02d4af75fc17898aad1f560a75")
+      (a/equal (get-in pins [:files "kotoba-client-runtime.js"]) "3e2bc61e8ce544d4cc12fbf7f893be4f7f0367be00e2e3d4ebdee5c3bb410367")
       (a/equal (sha (fs/readFileSync "dist/vendor/kotoba-client-consent.css")) (get-in pins [:files "kotoba-client-consent.css"])))
     (a/ok (str/includes? (fs/readFileSync "dist/host.js" "utf8") "mountRestrictedClientApp"))
     (a/equal (str/includes? guest "createClientOperationBroker") false)
@@ -73,9 +74,10 @@
     (js-await (a/rejects (port/invoke #js{} #js{}) #"host-not-connected")))
 (test "guest port: a bridged response is bounded by status and bytes" port-bounds)
 
-(test "the 設定 › 許可した送信 screen says the app stores no permission"
+(test "no settings screen: the runtime's one-time wording replaces it"
   (fn []
-    (a/ok (str/includes? guest "この app は許可を保存しません。送るたびに確認します。保存している許可はありません。"))))
+    (a/equal (str/includes? guest "許可した送信") false)
+    (a/ok (str/includes? (fs/readFileSync "vendor/assets/kotoba-client-runtime.js" "utf8") "restrictedNoticeOnce"))))
 
 (test "the foreign-information page has the #us section Legal requires"
   (fn []

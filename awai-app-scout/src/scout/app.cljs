@@ -8,7 +8,6 @@
 
 (def copy
   {:ja {:title "Koukoku Scout" :lead "広告主を探す bot が集めた記録を、公開されている export から確かめます。"
-        :settings "設定 › 許可した送信" :settings-text "この app は許可を保存しません。送るたびに確認します。保存している許可はありません。"
         :bot "組になる bot" :description "役割" :runtime "実行" :cron "定期実行" :enabled "有効" :disabled "停止" :limits "bot の制約"
         :authority "この app は公開 export を読むだけです。営業の連絡や申込は送りません。"
         :read "公開 export を取得" :language "言語"
@@ -22,7 +21,6 @@
         :profile-invalid "同梱の bot profile を確認できないため、表示を停止しました。"
         :read-at "最終取得" :origin "出典"}
    :en {:title "Koukoku Scout" :lead "Check what the advertiser-scouting bot collected, from its public export."
-        :settings "Settings › Allowed sending" :settings-text "This app does not save permissions. It asks each time before sending. No permission is saved."
         :bot "Paired bot" :description "Role" :runtime "Runtime" :cron "Schedules" :enabled "enabled" :disabled "disabled" :limits "Bot limits"
         :authority "This app only reads the public export. It sends no outreach and no applications."
         :read "Read public export" :language "Language"
@@ -114,13 +112,6 @@
                       [:br] [:span {:class "awai-caption mono"} (str (t :evidence) ": " (:evidence-url r))]])
              (take 200 (:rows ex)))]))))
 
-;; 設定 › 許可した送信 (Legal, KOTOBA-159): the withdrawal place the consent
-;; dialog names. The app stores no permission, and this screen says exactly that.
-(defn settings-card []
-  (ui/card
-   (ui/heading 2 (t :settings))
-   [:p {:id "allowed-sending"} (t :settings-text)]))
-
 (defn render! []
   (let [root (.getElementById js/document "app") busy (or (:busy @state) (not (port/connected?)))]
     (set! (.. js/document -documentElement -lang) (:locale @state))
@@ -141,8 +132,7 @@
                  (ui/button (t :read) {:attrs {:id "read-export" :disabled busy :on-click read!}})]
                 [:p {:class "awai-caption awai-muted"} (str (t :endpoint) ": " (d/export-url) " — " (t :consent-note))]
                 (when (:read-at @state) [:p {:class "awai-caption awai-muted"} (str (t :read-at) ": " (time-text (:read-at @state)))])
-                (export-card)
-                (settings-card)))]]))))
+                (export-card)))]]))))
 
 (port/listen! render!)
 (render!)
