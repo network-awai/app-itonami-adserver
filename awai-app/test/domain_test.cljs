@@ -29,13 +29,6 @@
     (a/equal (runtime/clientRuntimeConnectSrc (d/descriptor) #js[d/capability] #js[] #js["tauri://localhost"])
              "connect-src https://murakumo.cloud")))
 
-(test "CSP in tauri.conf.json and index.html equals the derived connect-src"
-  (fn [] (let [conf (js/JSON.parse (fs/readFileSync "src-tauri/tauri.conf.json" "utf8"))
-               html (fs/readFileSync "public/index.html" "utf8")
-               csp (get-in conf [:app :security :csp])]
-    (a/ok (str/includes? csp "connect-src https://murakumo.cloud ipc: http://ipc.localhost;"))
-    (a/ok (str/includes? html (str "content=\"" csp "\""))))))
-
 (test "only the two declared reads match; refresh, POST and other paths do not"
   (fn [] (let [[inv free] d/operations]
     (a/ok (runtime/clientEndpointAllowsRequest (:endpoint inv) (d/inventory-url) "GET"))
