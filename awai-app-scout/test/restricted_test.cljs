@@ -25,7 +25,7 @@
       (a/notEqual (:recipient (:disclosure op)) "TBD" "the recipient is owner input, not a placeholder")
       (a/equal (:withdrawal (:disclosure op)) "設定 › 許可した送信")
       (when (not= "JP" (:country (:disclosure op)))
-        (a/ok (str/ends-with? (:foreign-info-url (:disclosure op)) "/foreign-info.html#us") "the app's own foreign-information page, section #us")))
+        (a/equal (:foreign-info-url (:disclosure op)) "https://disclosures.awai.network/network.itonami.koukokuscout/foreign-info.html#us" "the app's own page on the disclosures site, folder = package id")))
     (a/deepEqual (:operations (:descriptor host-data)) (js/JSON.parse (js/JSON.stringify (:operations (d/descriptor)))))))
 
 (test "the page CSP is the one in tauri.conf.json and admits only the preamble and the guest by hash"

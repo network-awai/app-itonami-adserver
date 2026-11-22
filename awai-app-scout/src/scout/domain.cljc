@@ -25,12 +25,14 @@
 ;; restricted-wasm-v1 (KOTOBA-159): the disclosure the consent dialog shows
 ;; first (Legal, 2026-11-22). raw.githubusercontent.com is served by GitHub,
 ;; Inc. (United States). foreign-info-url is the app's own foreign-information
-;; page, section #us (site/foreign-info.html), not the PPC list page. The app
+;; page, section #us: site/foreign-info.html, published byte-identical in
+;; network-awai/app-disclosures at the permanent URL below (folder = package
+;; id). It is not the PPC list page. The app
 ;; stores no permission; the withdrawal place is the app's 設定 › 許可した送信
 ;; screen, which says so.
 (def foreign-info-url
-  "Where site/foreign-info.html is published (owner decision, KOTOBA-159)."
-  "TBD")
+  "Permanent; Decision 2026-11-22 (KOTOBA-159)."
+  "https://disclosures.awai.network/network.itonami.koukokuscout/foreign-info.html#us")
 
 (def disclosure
   {:recipient "GitHub, Inc." :country "US" :country-name "アメリカ合衆国"
