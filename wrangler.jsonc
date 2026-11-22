@@ -3,12 +3,18 @@
   "main": "dist/worker.js",
   "compatibility_date": "2026-07-09",
   "compatibility_flags": ["nodejs_compat"],
-  // The zone x402.nexus is served from this account (nexus-x402 Worker).
+  // cloud-kotoba owns the zone x402.nexus (nexus-x402 Worker); pin the account
+  // so deploys are not ambiguous across the operator's accounts.
+  "account_id": "4da88288dc30d9ee257f319d3c33ecf0",
+  // Single canonical hostname. custom_domain creates the DNS record + cert.
   "routes": [{ "pattern": "ads.x402.nexus", "custom_domain": true }],
   "vars": {
     // Campaign registry: JSON array of {id, advertiser, creative, bid{model,usd},
     // targeting{tier,formats,placements,geo}, budget, status}. Public creative +
     // bids only, no keys. cloud-itonami's governor manages the lifecycle.
+    // This var is the single source: scripts/campaigns_static_export.py reads
+    // it at build time for public/campaigns.json; the Worker only uses it
+    // internally for /serve (list routes answer 410 Gone pointing at static).
     "CAMPAIGNS_JSON": "[]"
     // ADNET_TREASURY_ADDR (advertiser USDC deposits) via wrangler secret/var.
   }

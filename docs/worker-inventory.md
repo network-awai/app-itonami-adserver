@@ -47,3 +47,24 @@ The dispatcher is `src/adserver/worker.cljk:156-171`. Bindings are `wrangler.jso
 
 - `cloud-itonami`'s campaign lifecycle (the governor that edits `CAMPAIGNS_JSON`) and murakumo.cloud's `cloud-murakumo.adnetwork` code. Both live in other repositories.
 - Whether `CAMPAIGNS_JSON` in the deployed Worker equals the `[]` in `wrangler.jsonc`. The host is unreachable, and the Cloudflare account was not queried.
+
+## Addendum 2026-11-23 — static list + domain fix (owner approved)
+
+Steps 1 and 4 above were approved together on 2026-11-23:
+
+- **Static list:** `scripts/campaigns_static_export.py` generates
+  `public/campaigns.json` (+ `.sha256`) and `public/catalog.json` (+ `.sha256`)
+  from `CAMPAIGNS_JSON` in `wrangler.jsonc` at build time. Worker
+  `/campaigns` + `/catalog` now answer **410 Gone** with a pointer to the
+  static URLs; `/serve`, `/event`, `/topup`, `/health` are unchanged.
+  murakumo.cloud's cron must switch from `https://ads.x402.nexus/campaigns`
+  to the static `campaigns.json` URL (README documents the migration).
+- **Domain:** `ads.x402.nexus` did not resolve because the `adserver` Worker
+  did not exist on any account (zone `x402.nexus` is on `cloud-kotoba`,
+  account `4da88288dc30d9ee257f319d3c33ecf0`; only `nexus-x402` held the apex
+  custom domain). The fix deploys this Worker to that account with the
+  existing `custom_domain` route, restoring the single canonical hostname.
+  No second/off-path setup was created.
+- **Not done:** no ledger/billing change; `/event` + `/topup` still record
+  nothing (AWAI-420 stage, separate approval). `/serve` was kept as-is per
+  the owner scope (step 2 above was not part of this change).

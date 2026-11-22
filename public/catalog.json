@@ -1,0 +1,15 @@
+{
+ "schema": "awai.adserver.catalog.v1",
+ "source": {
+  "file": "wrangler.jsonc",
+  "var": "CAMPAIGNS_JSON",
+  "inputsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+ },
+ "generatedAt": "2026-11-22T22:36:17Z",
+ "campaigns": 0,
+ "slots": [],
+ "billing": "USDC on Base via x402 prepaid deposits",
+ "registry": "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json",
+ "campaignsUrl": "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json",
+ "catalogUrl": "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/catalog.json"
+}

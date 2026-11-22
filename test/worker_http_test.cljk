@@ -15,36 +15,27 @@
     (.then (fn [m]
              (let [w (.-default m)
                    empty-env #js {:CAMPAIGNS_JSON "[]"}
-                   one-env #js {:CAMPAIGNS_JSON cpm}
-                   bad-env #js {:CAMPAIGNS_JSON "{not json"}
-                   obj-env #js {:CAMPAIGNS_JSON "{\"id\":1}"}]
-               (-> (json! (call w empty-env "GET" "/campaigns") 200)
+                   one-env #js {:CAMPAIGNS_JSON cpm}]
+               (-> (json! (call w one-env "GET" "/campaigns") 410)
                    (.then (fn [r]
-                            (a/equal (.-ok r) true) (a/equal (.-count r) 0)
-                            (a/equal (alength (.-campaigns r)) 0)
-                            (json! (call w one-env "GET" "/campaigns") 200)))
-                   (.then (fn [r]
-                            (a/equal (.-count r) 1)
-                            (a/equal (.-id (aget (.-campaigns r) 0)) "cmp-1")
-                            (a/equal (.-usd (.-bid (aget (.-campaigns r) 0))) "4.00" "the bid is public and verbatim")
-                            (json! (call w bad-env "GET" "/campaigns") 503)))
-                   (.then (fn [r]
+                            (a/equal (.-gone r) true)
                             (a/equal (.-ok r) false)
-                            (a/equal (.-count r) nil "unreadable is not empty")
-                            (json! (call w obj-env "GET" "/campaigns") 503)))
+                            (a/equal (.-campaigns (.-static r)) "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json")
+                            (json! (call w empty-env "GET" "/campaigns") 410)))
                    (.then (fn [r]
-                            (a/equal (.-count r) nil)
+                            (a/equal (.-gone r) true "static pointer is env-independent")
+                            (json! (call w one-env "GET" "/catalog") 410)))
+                   (.then (fn [r]
+                            (a/equal (.-gone r) true)
+                            (a/equal (.-catalog (.-static r)) "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/catalog.json")
                             (json! (call w one-env "GET" "/serve?slot=go-wait") 200)))
                    (.then (fn [r]
                             (a/equal (.-kind r) "paid") (a/equal (aget r "campaign-id") "cmp-1")
                             (json! (call w empty-env "GET" "/serve?slot=go-wait") 200)))
                    (.then (fn [r]
                             (a/equal (.-kind r) "house" "no campaigns -> the house ad, never an error")
-                            (json! (call w one-env "GET" "/catalog") 200)))
-                   (.then (fn [r]
-                            (a/equal (.-campaigns r) 1) (a/equal (.-registry r) "/campaigns")
                             (json! (call w one-env "GET" "/health") 200)))
                    (.then (fn [r]
                             (a/equal (.-ok r) true)
-                            (println "CHECKED\t8\tadserver http: /campaigns empty, one, unreadable 503, non-array 503; /serve paid + house; /catalog; /health")))))))
+                            (println "CHECKED\t6\tadserver http: /campaigns 410 gone + static, /catalog 410 gone + static; /serve paid + house; /health")))))))
     (.catch (fn [e] (.error js/console e) (js/process.exit 1))))

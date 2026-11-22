@@ -8,7 +8,9 @@
   treasury over a keyless Base RPC) — ad income flows in our own currency.
 
   Campaign registry is CAMPAIGNS_JSON config (public creative + bid + targeting
-  + prepaid balance; no keys). Same invariants as nexus-x402: the pure decision
+  + prepaid balance; no keys), published as a static list at build time
+  (public/campaigns.json); the Worker list routes answer 410 Gone pointing
+  there. Same invariants as nexus-x402: the pure decision
   is adnet.core/serve + adnet.billing/accrue; the worker only adds HTTP + the
   on-chain top-up verify. cloud-itonami operates campaign lifecycle (create/
   pause) through its governor; here they arrive as config the ops layer manages."
@@ -112,46 +114,28 @@
                                       (json {:ok false :reason "unconfirmed or wrong recipient"} 402)))))))))
           (.catch (fn [_] (json {:error "bad request"} 400)))))))
 
-;; ── GET /campaigns — the registry itself, for publishers that pull ─────
-;; The auction runs in `kotoba-lang/adnet` on both sides, so a publisher that
-;; holds the registry (murakumo.cloud syncs it into KV every few minutes) can
-;; serve from cache when this host is unreachable, and can compute the charge
-;; it records on its own receipts from the same bid this host would use.
-;; CAMPAIGNS_JSON is public by construction (creative + bid + targeting +
-;; budget, no keys), so nothing is redacted here; a malformed registry answers
-;; 503 with count nil rather than an empty list -- "unreadable" and "no
-;; campaigns" are different states and a puller must not cache the first as
-;; the second.
+;; ── GET /campaigns + /catalog — RETIRED, static now (owner 2026-11-23) ─
+;; The list is published as static files generated at build time from the same
+;; CAMPAIGNS_JSON source (scripts/campaigns_static_export.py -> public/).
+;; This Worker carries writes + API only (/serve, /event, /topup, /health),
+;; so the list routes answer 410 Gone with a pointer rather than duplicating
+;; the registry at request time. Pullers (murakumo.cloud's cron) must switch
+;; to the static URLs below; a 410 is loud on purpose — do not cache it as
+;; an empty list.
 
-(defn- handle-campaigns [env]
-  (let [raw (gobj/get env "CAMPAIGNS_JSON")
-        parsed (try (when (and (string? raw) (not= raw "")) (js/JSON.parse raw))
-                    (catch :default _ ::bad))]
-    (cond
-      (= ::bad parsed)
-      (json {:service "adserver" :ok false :count nil
-             :error "CAMPAIGNS_JSON is not valid JSON"} 503)
-      (and (some? parsed) (not (array? parsed)))
-      (json {:service "adserver" :ok false :count nil
-             :error "CAMPAIGNS_JSON is not an array"} 503)
-      :else
-      (let [arr (or parsed #js [])]
-        (js/Response. (js/JSON.stringify #js {:service "adserver" :ok true
-                                             :count (alength arr)
-                                             :generated-at (now-iso)
-                                             :campaigns arr})
-                      #js {:status 200
-                           :headers #js {"content-type" "application/json; charset=utf-8"
-                                         "cache-control" "no-store"}})))))
+(def ^:private static-base
+  "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public")
 
-;; ── catalog / discovery ─────────────────────────────────────────────
-
-(defn- handle-catalog [env]
-  (json {:service "adserver"
-         :campaigns (count (campaigns env))
-         :slots (->> (campaigns env) (mapcat #(get-in % [:targeting :placements])) (remove nil?) distinct vec)
-         :billing "USDC on Base via x402 prepaid deposits"
-         :registry "/campaigns"} 200))
+(defn- handle-gone [resource]
+  (let [campaigns-url (str static-base "/campaigns.json")
+        catalog-url (str static-base "/catalog.json")]
+    (json {:service "adserver" :ok false :gone true
+           :error (str resource " is static; read " (if (= resource "/catalog") catalog-url campaigns-url))
+           :static {:campaigns campaigns-url
+                    :campaigns-sha256 (str campaigns-url ".sha256")
+                    :catalog catalog-url
+                    :catalog-sha256 (str catalog-url ".sha256")}}
+          410)))
 
 (defn- fetch-handler [^js request env _ctx]
   (let [p (.-pathname (js/URL. (.-url request)))
@@ -165,8 +149,7 @@
       (and (= m "GET")  (= p "/serve"))   (js/Promise.resolve (handle-serve request env))
       (and (= m "POST") (= p "/event"))   (handle-event request env)
       (and (= m "POST") (= p "/topup"))   (handle-topup request env)
-      (= p "/catalog")                    (js/Promise.resolve (handle-catalog env))
-      (and (= m "GET")  (= p "/campaigns")) (js/Promise.resolve (handle-campaigns env))
+      (or (= p "/catalog") (= p "/campaigns")) (js/Promise.resolve (handle-gone p))
       (= p "/health")                     (js/Promise.resolve (json {:ok true :service "adserver"} 200))
       :else (js/Promise.resolve (json {:service "adserver" :see "/catalog"} 200)))))
 
