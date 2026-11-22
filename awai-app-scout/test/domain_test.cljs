@@ -31,6 +31,13 @@
     (a/equal (runtime/clientRuntimeConnectSrc (d/descriptor) #js[d/capability] #js[] #js["tauri://localhost"])
              "connect-src https://raw.githubusercontent.com")))
 
+(test "CSP in tauri.conf.json and index.html equals the derived connect-src"
+  (fn [] (let [conf (js/JSON.parse (fs/readFileSync "src-tauri/tauri.conf.json" "utf8"))
+               html (fs/readFileSync "public/index.html" "utf8")
+               csp (get-in conf [:app :security :csp])]
+    (a/ok (str/includes? csp "connect-src https://raw.githubusercontent.com ipc: http://ipc.localhost;"))
+    (a/ok (str/includes? html (str "content=\"" csp "\""))))))
+
 (test "only the export file matches; other repositories, branches, files, queries and POST do not"
   (fn [] (let [ep (:endpoint (first d/operations)) base "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/"]
     (a/ok (runtime/clientEndpointAllowsRequest ep (d/export-url) "GET"))
