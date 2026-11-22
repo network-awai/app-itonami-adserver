@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "squint compile && node .agent-output/compiled/scout/build.mjs",
-    "test": "squint compile && node --test .agent-output/compiled/domain_test.mjs",
+    "test": "squint compile && node .agent-output/compiled/scout/build.mjs && node --test .agent-output/compiled/domain_test.mjs .agent-output/compiled/restricted_test.mjs",
     "tauri": "tauri",
     "build:android": "npm run build && tauri android build --debug --apk --target aarch64",
     "build:android:x86": "npm run build && tauri android build --debug --apk --target x86_64"

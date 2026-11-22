@@ -1,6 +1,6 @@
 (ns scout.app
   (:require [scout.domain :as d] ["@awai/ui" :as ui] [clojure.string :as str]
-            ["@awai/client-runtime" :as runtime] ["@awai/profile-text$default" :as profile-text]))
+            [scout.guest-port :as port] ["@awai/profile-text$default" :as profile-text]))
 
 (defonce state (atom {:locale "ja" :notice "" :export nil :sha256 nil :busy false :read-at nil}))
 (def node ui/node)
@@ -8,6 +8,7 @@
 
 (def copy
   {:ja {:title "Koukoku Scout" :lead "広告主を探す bot が集めた記録を、公開されている export から確かめます。"
+        :settings "設定 › 許可した送信" :settings-text "この app は許可を保存しません。送るたびに確認します。保存している許可はありません。"
         :bot "組になる bot" :description "役割" :runtime "実行" :cron "定期実行" :enabled "有効" :disabled "停止" :limits "bot の制約"
         :authority "この app は公開 export を読むだけです。営業の連絡や申込は送りません。"
         :read "公開 export を取得" :language "言語"
@@ -21,6 +22,7 @@
         :profile-invalid "同梱の bot profile を確認できないため、表示を停止しました。"
         :read-at "最終取得" :origin "出典"}
    :en {:title "Koukoku Scout" :lead "Check what the advertiser-scouting bot collected, from its public export."
+        :settings "Settings › Allowed sending" :settings-text "This app does not save permissions. It asks each time before sending. No permission is saved."
         :bot "Paired bot" :description "Role" :runtime "Runtime" :cron "Schedules" :enabled "enabled" :disabled "disabled" :limits "Bot limits"
         :authority "This app only reads the public export. It sends no outreach and no applications."
         :read "Read public export" :language "Language"
@@ -41,27 +43,15 @@
 (def profile (js/JSON.parse profile-text))
 (def profile-ok (empty? (d/profile-problems profile)))
 
-(def client
-  (let [desc (d/descriptor)]
-    (when (seq (runtime/clientRuntimeProblems desc #js[d/capability] js/location.origin))
-      (throw (js/Error. "canonical client runtime refused descriptor")))
-    (runtime/createClientOperationBroker
-     #js{:runtime desc :requestedCapabilities #js[d/capability] :approvedOperations (:operations desc)
-         :hostSupportedOperations (clj->js (map (fn [o] [(:capability o) (:service o) (:operation o)]) (:operations desc)))
-         :consentHost (runtime/createClientConsentHost)})))
-
 (defn hex [buf] (str/join (map #(.padStart (.toString % 16) 2 "0") (js/Array.from (js/Uint8Array. buf)))))
 
-(defn bounded-text [response]
-  (cond
-    (= 404 (.-status response)) (js/Promise.reject (ex-info "not-published" {:reason "not-published"}))
-    (not (.-ok response)) (js/Promise.reject (js/Error. (str "HTTP " (.-status response))))
-    :else
-    (let [declared (js/Number (.get (.-headers response) "content-length"))]
-      (if (and (js/Number.isFinite declared) (> declared d/max-response-bytes))
-        (js/Promise.reject (js/Error. "response too large"))
-        (.then (.arrayBuffer response)
-               (fn [buf] (if (> (.-byteLength buf) d/max-response-bytes) (throw (js/Error. "response too large")) buf)))))))
+;; restricted-wasm-v1: the guest reaches the host broker only through the port.
+;; The host bridges UTF-8 text; the digest is taken over its UTF-8 bytes, which
+;; equal the file's bytes for the exporter's BOM-less UTF-8 JSON.
+(defn bounded-text [m]
+  (try (.encode (js/TextEncoder.) (port/http-text m d/max-response-bytes))
+       (catch :default e
+         (throw (if (= 404 (:status (ex-data e))) (ex-info "not-published" {:reason "not-published"}) e)))))
 
 (defn notice! [s] (swap! state assoc :notice s) (render!))
 
@@ -76,7 +66,7 @@
 
 (defn read! []
   (swap! state assoc :busy true) (render!)
-  (-> (.invoke client #js{:capability d/capability :service d/service :operation "read-public-export"}
+  (-> (port/invoke #js{:capability d/capability :service d/service :operation "read-public-export"}
                #js{:input (d/export-url) :init #js{:method "GET"}})
       (.then bounded-text)
       (.then (fn [buf]
@@ -124,8 +114,15 @@
                       [:br] [:span {:class "awai-caption mono"} (str (t :evidence) ": " (:evidence-url r))]])
              (take 200 (:rows ex)))]))))
 
+;; 設定 › 許可した送信 (Legal, KOTOBA-159): the withdrawal place the consent
+;; dialog names. The app stores no permission, and this screen says exactly that.
+(defn settings-card []
+  (ui/card
+   (ui/heading 2 (t :settings))
+   [:p {:id "allowed-sending"} (t :settings-text)]))
+
 (defn render! []
-  (let [root (.getElementById js/document "app") busy (:busy @state)]
+  (let [root (.getElementById js/document "app") busy (or (:busy @state) (not (port/connected?)))]
     (set! (.. js/document -documentElement -lang) (:locale @state))
     (.replaceChildren root
      (node [:div {:class "awai-ui awai-container"}
@@ -144,6 +141,8 @@
                  (ui/button (t :read) {:attrs {:id "read-export" :disabled busy :on-click read!}})]
                 [:p {:class "awai-caption awai-muted"} (str (t :endpoint) ": " (d/export-url) " — " (t :consent-note))]
                 (when (:read-at @state) [:p {:class "awai-caption awai-muted"} (str (t :read-at) ": " (time-text (:read-at @state)))])
-                (export-card)))]]))))
+                (export-card)
+                (settings-card)))]]))))
 
+(port/listen! render!)
 (render!)
