@@ -9,8 +9,10 @@
 
   Campaign registry is CAMPAIGNS_JSON config (public creative + bid + targeting
   + prepaid balance; no keys), published as a static list at build time
-  (public/campaigns.json); the Worker list routes answer 410 Gone pointing
-  there. Same invariants as nexus-x402: the pure decision
+  (public/campaigns.json); the Worker list routes serve that same generated
+  content (embedded at build time) with Deprecation + Sunset headers so
+  existing pullers keep working while they migrate to the static URLs.
+  Same invariants as nexus-x402: the pure decision
   is adnet.core/serve + adnet.billing/accrue; the worker only adds HTTP + the
   on-chain top-up verify. cloud-itonami operates campaign lifecycle (create/
   pause) through its governor; here they arrive as config the ops layer manages."
@@ -18,6 +20,7 @@
             [goog.object :as gobj]
             [adnet.core :as adnet]
             [adnet.billing :as billing]
+            [adserver.static-content :as static]
             [treasury.core :as treasury]))
 
 (defn- json [body status]
@@ -114,28 +117,50 @@
                                       (json {:ok false :reason "unconfirmed or wrong recipient"} 402)))))))))
           (.catch (fn [_] (json {:error "bad request"} 400)))))))
 
-;; ── GET /campaigns + /catalog — RETIRED, static now (owner 2026-11-23) ─
+;; ── GET /campaigns + /catalog — DEPRECATED, static content served (owner 2026-11-23) ─
 ;; The list is published as static files generated at build time from the same
 ;; CAMPAIGNS_JSON source (scripts/campaigns_static_export.py -> public/).
-;; This Worker carries writes + API only (/serve, /event, /topup, /health),
-;; so the list routes answer 410 Gone with a pointer rather than duplicating
-;; the registry at request time. Pullers (murakumo.cloud's cron) must switch
-;; to the static URLs below; a 410 is loud on purpose — do not cache it as
-;; an empty list.
+;; Pullers (murakumo.cloud's cron) still read these Worker routes, so they
+;; answer 200 with the embedded static content plus Deprecation/Sunset/Link
+;; headers, pointing at the raw static URLs as successor-version. The puller
+;; migrates to the static URL in a separate PR; only then can 410 be raised.
+;; The embedded bytes come from scripts/embed_static_json.py
+;; (src/adserver/static_content.cljs, generated from public/) — never
+;; re-fetched at request time and never hand-duplicated here.
 
 (def ^:private static-base
   "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public")
 
-(defn- handle-gone [resource]
-  (let [campaigns-url (str static-base "/campaigns.json")
-        catalog-url (str static-base "/catalog.json")]
-    (json {:service "adserver" :ok false :gone true
-           :error (str resource " is static; read " (if (= resource "/catalog") catalog-url campaigns-url))
-           :static {:campaigns campaigns-url
-                    :campaigns-sha256 (str campaigns-url ".sha256")
-                    :catalog catalog-url
-                    :catalog-sha256 (str catalog-url ".sha256")}}
-          410)))
+;; RFC 8594 Sunset: HTTP-date; 2026-12-31 is >4 weeks after 2026-11-23.
+(def ^:private sunset-date "Thu, 31 Dec 2026 00:00:00 GMT")
+
+(defn- deprecated-json [^js body-js successor-url]
+  (js/Response. (js/JSON.stringify body-js)
+                #js {:status 200
+                     :headers #js {"content-type" "application/json; charset=utf-8"
+                                   "access-control-allow-origin" "*"
+                                   "cache-control" "no-store"
+                                   "deprecation" "true"
+                                   "sunset" sunset-date
+                                   "link" (str "<" successor-url ">; rel=\"successor-version\"")}}))
+
+(defn- static-body [json-str]
+  ;; Static content + today's envelope fields ({service, ok, generated-at})
+  ;; so the murakumo puller keeps working unchanged. The static keys
+  ;; (count, campaigns, generatedAt, ...) are preserved verbatim.
+  (let [o (js/JSON.parse json-str)]
+    (gobj/set o "service" "adserver")
+    (gobj/set o "ok" true)
+    (gobj/set o "generated-at" (gobj/get o "generatedAt"))
+    o))
+
+(defn- handle-campaigns [_env]
+  (deprecated-json (static-body static/campaigns-json)
+                   (str static-base "/campaigns.json")))
+
+(defn- handle-catalog [_env]
+  (deprecated-json (static-body static/catalog-json)
+                   (str static-base "/catalog.json")))
 
 (defn- fetch-handler [^js request env _ctx]
   (let [p (.-pathname (js/URL. (.-url request)))
@@ -146,10 +171,11 @@
                                                  :headers #js {"access-control-allow-origin" "*"
                                                                "access-control-allow-methods" "GET, POST, OPTIONS"
                                                                "access-control-allow-headers" "content-type"}}))
-      (and (= m "GET")  (= p "/serve"))   (js/Promise.resolve (handle-serve request env))
+      (and (= m "GET") (= p "/serve"))   (js/Promise.resolve (handle-serve request env))
       (and (= m "POST") (= p "/event"))   (handle-event request env)
       (and (= m "POST") (= p "/topup"))   (handle-topup request env)
-      (or (= p "/catalog") (= p "/campaigns")) (js/Promise.resolve (handle-gone p))
+      (and (= m "GET") (= p "/campaigns")) (js/Promise.resolve (handle-campaigns env))
+      (and (= m "GET") (= p "/catalog"))   (js/Promise.resolve (handle-catalog env))
       (= p "/health")                     (js/Promise.resolve (json {:ok true :service "adserver"} 200))
       :else (js/Promise.resolve (json {:service "adserver" :see "/catalog"} 200)))))
 

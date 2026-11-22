@@ -13,8 +13,9 @@
     // targeting{tier,formats,placements,geo}, budget, status}. Public creative +
     // bids only, no keys. cloud-itonami's governor manages the lifecycle.
     // This var is the single source: scripts/campaigns_static_export.py reads
-    // it at build time for public/campaigns.json; the Worker only uses it
-    // internally for /serve (list routes answer 410 Gone pointing at static).
+    // it at build time for public/campaigns.json; scripts/embed_static_json.py
+    // embeds those files into the Worker bundle, which serves them at
+    // GET /campaigns + /catalog (200, Deprecation/Sunset headers).
     "CAMPAIGNS_JSON": "[]"
     // ADNET_TREASURY_ADDR (advertiser USDC deposits) via wrangler secret/var.
   }

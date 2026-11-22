@@ -6,28 +6,46 @@
 
 (def cpm "[{\"id\":\"cmp-1\",\"advertiser\":\"did:key:zADV\",\"creative\":{\"type\":\"text\",\"click-url\":\"https://example.test/ad\",\"copy\":\"Ad copy\"},\"bid\":{\"model\":\"cpm\",\"usd\":\"4.00\"},\"targeting\":{\"placements\":[\"go-wait\"]},\"budget\":{\"total-usd\":\"50.00\",\"spent-micros\":0},\"status\":\"active\"}]")
 
+(def sunset "Thu, 31 Dec 2026 00:00:00 GMT")
+(def static-base "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public")
+
 (defn call [w env method path]
   (.fetch w (js/Request. (str "https://ads.x402.nexus" path) #js {:method method}) env #js {}))
+
 (defn json! [p expected]
   (.then p (fn [r] (a/equal (.-status r) expected (str "status " (.-url r))) (.json r))))
+
+(defn expect-deprecated! [r successor-file]
+  (a/equal (.get (.-headers r) "deprecation") "true" "Deprecation header")
+  (a/equal (.get (.-headers r) "sunset") sunset "Sunset header")
+  (a/equal (.get (.-headers r) "link")
+           (str "<" static-base "/" successor-file ">; rel=\"successor-version\"")
+           "Link successor-version header")
+  r)
 
 (-> (js/eval (str "import(" (js/JSON.stringify (str (url/pathToFileURL (path/resolve "dist/worker.js")))) ")"))
     (.then (fn [m]
              (let [w (.-default m)
                    empty-env #js {:CAMPAIGNS_JSON "[]"}
                    one-env #js {:CAMPAIGNS_JSON cpm}]
-               (-> (json! (call w one-env "GET" "/campaigns") 410)
+               (-> (json! (expect-deprecated! (call w one-env "GET" "/campaigns") "campaigns.json") 200)
                    (.then (fn [r]
-                            (a/equal (.-gone r) true)
-                            (a/equal (.-ok r) false)
-                            (a/equal (.-campaigns (.-static r)) "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json")
-                            (json! (call w empty-env "GET" "/campaigns") 410)))
+                            (a/equal (.-service r) "adserver")
+                            (a/equal (.-ok r) true)
+                            (a/equal (.-schema r) "awai.adserver.campaigns.v1")
+                            (a/equal (aget r "generated-at") (aget r "generatedAt") "envelope generated-at == static generatedAt")
+                            (a/equal (.-count r) 0 "embedded static content (count 0)")
+                            (a/equal (boolean (.-gone r)) false "no 410-pointer body"))
+                   (.then (fn [_]
+                            (json! (expect-deprecated! (call w empty-env "GET" "/campaigns") "campaigns.json") 200)))
                    (.then (fn [r]
-                            (a/equal (.-gone r) true "static pointer is env-independent")
-                            (json! (call w one-env "GET" "/catalog") 410)))
+                            (a/equal (.-ok r) true "static body is env-independent")
+                            (json! (expect-deprecated! (call w one-env "GET" "/catalog") "catalog.json") 200)))
                    (.then (fn [r]
-                            (a/equal (.-gone r) true)
-                            (a/equal (.-catalog (.-static r)) "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/catalog.json")
+                            (a/equal (.-service r) "adserver")
+                            (a/equal (.-ok r) true)
+                            (a/equal (.-schema r) "awai.adserver.catalog.v1")
+                            (a/equal (.-campaigns r) 0 "embedded static catalog count")
                             (json! (call w one-env "GET" "/serve?slot=go-wait") 200)))
                    (.then (fn [r]
                             (a/equal (.-kind r) "paid") (a/equal (aget r "campaign-id") "cmp-1")
@@ -37,5 +55,5 @@
                             (json! (call w one-env "GET" "/health") 200)))
                    (.then (fn [r]
                             (a/equal (.-ok r) true)
-                            (println "CHECKED\t6\tadserver http: /campaigns 410 gone + static, /catalog 410 gone + static; /serve paid + house; /health")))))))
+                            (println "CHECKED\t6\tadserver http: /campaigns 200 deprecated + static, /catalog 200 deprecated + static; /serve paid + house; /health")))))))
     (.catch (fn [e] (.error js/console e) (js/process.exit 1))))

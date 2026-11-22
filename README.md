@@ -20,8 +20,8 @@ its ops-LLM ⊣ CertGovernor loop); campaigns arrive here as `CAMPAIGNS_JSON`.
 GET  /serve?slot=&tier=&format=&geo=   → {kind:paid|house, creative, campaign-id}
 POST /event {campaign-id, kind, placement}  → {charge-micros, event}
 POST /topup {tx}                        → verify an advertiser's USDC deposit on-chain
-GET  /campaigns                         → 410 Gone; read the static list (below)
-GET  /catalog                           → 410 Gone; read the static catalog (below)
+GET  /campaigns                         → 200, deprecated (see below); successor = static file
+GET  /catalog                           → 200, deprecated (see below); successor = static file
 GET  /health
 ```
 
@@ -55,16 +55,25 @@ export): after merging, readers fetch
 
 with a digest check against the `.sha256` sidecar. No HTML view: this repo has
 no static-site home (`public/` is data-only), so an HTML copy would go stale.
+The Worker embeds those bytes at build time
+(`scripts/embed_static_json.py` → `src/adserver/static_content.cljs`, run by
+`npm run build` before shadow-cljs) and serves them at `GET /campaigns` /
+`GET /catalog` with status 200, the static content plus the envelope fields
+`service`/`ok`/`generated-at`, and headers `Deprecation: true`,
+`Sunset: Thu, 31 Dec 2026 00:00:00 GMT` (2026-12-31),
+`Link: <static URL>; rel="successor-version"`.
 
 ```bash
 python3 scripts/campaigns_static_export.py --out public   # regenerate from wrangler.jsonc
-git diff --stat public                                    # review before committing
+python3 scripts/embed_static_json.py                      # re-embed into the Worker bundle
+git diff --stat public src/adserver/static_content.cljs   # review before committing
 ```
 
-**murakumo puller migration:** `cloud-murakumo.adnetwork` must switch its cron
-from `https://ads.x402.nexus/campaigns` (now 410 Gone by design) to the static
-`campaigns.json` URL above. A 410 is loud on purpose — do not cache it as an
-empty list; keep serving the last good cache until the static pull succeeds.
+**murakumo puller migration:** `cloud-murakumo.adnetwork` still pulls
+`https://ads.x402.nexus/campaigns` on a cron. That route keeps answering 200
+with the same body, so the puller keeps working; it migrates to the static
+`campaigns.json` URL above in a separate PR. Only after that migration may
+these routes return 410.
 
 ## Awai app (Koukoku)
 

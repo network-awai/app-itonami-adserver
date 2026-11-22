@@ -3,8 +3,9 @@
 
 Owner decision 2026-11-23: the campaign list is published as static files
 generated at BUILD time, never request-time dynamic generation in the Worker.
-The Worker carries writes + API only; `/campaigns` and `/catalog` answer
-410 Gone with a pointer to these files.
+The Worker serves the same embedded content at `GET /campaigns` and
+`GET /catalog` (200 + Deprecation/Sunset/Link headers, rework of the 410
+pointer) until pullers migrate to the static URLs.
 
 Source of truth: `CAMPAIGNS_JSON` in `wrangler.jsonc` (managed by
 cloud-itonami's governor, a different repo). This script parses that same
