@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://murakumo.cloud ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+      "csp": "default-src 'none'; script-src 'self' 'sha256-JEOuT1vHljEHI0xxIewRO/7Cccry2rV3V3NYEYMlVIU=' 'sha256-65ghvi3Qv4B1xRb3DNQ44+9EkEUrl09zw/G4jqIgFPA='; style-src 'self' 'sha256-BkO9rgAXHVOLIrAv7TMHZMx0eQeQtAVO5+lYJ/9NqDs='; img-src 'self' data:; connect-src https://murakumo.cloud ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
   "bundle": {

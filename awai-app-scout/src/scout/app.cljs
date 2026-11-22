@@ -1,6 +1,6 @@
 (ns scout.app
   (:require [scout.domain :as d] ["@awai/ui" :as ui] [clojure.string :as str]
-            ["@awai/client-runtime" :as runtime] ["@awai/profile-text$default" :as profile-text]))
+            [scout.guest-port :as port] ["@awai/profile-text$default" :as profile-text]))
 
 (defonce state (atom {:locale "ja" :notice "" :export nil :sha256 nil :busy false :read-at nil}))
 (def node ui/node)
@@ -41,27 +41,15 @@
 (def profile (js/JSON.parse profile-text))
 (def profile-ok (empty? (d/profile-problems profile)))
 
-(def client
-  (let [desc (d/descriptor)]
-    (when (seq (runtime/clientRuntimeProblems desc #js[d/capability] js/location.origin))
-      (throw (js/Error. "canonical client runtime refused descriptor")))
-    (runtime/createClientOperationBroker
-     #js{:runtime desc :requestedCapabilities #js[d/capability] :approvedOperations (:operations desc)
-         :hostSupportedOperations (clj->js (map (fn [o] [(:capability o) (:service o) (:operation o)]) (:operations desc)))
-         :consentHost (runtime/createClientConsentHost)})))
-
 (defn hex [buf] (str/join (map #(.padStart (.toString % 16) 2 "0") (js/Array.from (js/Uint8Array. buf)))))
 
-(defn bounded-text [response]
-  (cond
-    (= 404 (.-status response)) (js/Promise.reject (ex-info "not-published" {:reason "not-published"}))
-    (not (.-ok response)) (js/Promise.reject (js/Error. (str "HTTP " (.-status response))))
-    :else
-    (let [declared (js/Number (.get (.-headers response) "content-length"))]
-      (if (and (js/Number.isFinite declared) (> declared d/max-response-bytes))
-        (js/Promise.reject (js/Error. "response too large"))
-        (.then (.arrayBuffer response)
-               (fn [buf] (if (> (.-byteLength buf) d/max-response-bytes) (throw (js/Error. "response too large")) buf)))))))
+;; restricted-wasm-v1: the guest reaches the host broker only through the port.
+;; The host bridges UTF-8 text; the digest is taken over its UTF-8 bytes, which
+;; equal the file's bytes for the exporter's BOM-less UTF-8 JSON.
+(defn bounded-text [m]
+  (try (.encode (js/TextEncoder.) (port/http-text m d/max-response-bytes))
+       (catch :default e
+         (throw (if (= 404 (:status (ex-data e))) (ex-info "not-published" {:reason "not-published"}) e)))))
 
 (defn notice! [s] (swap! state assoc :notice s) (render!))
 
@@ -76,7 +64,7 @@
 
 (defn read! []
   (swap! state assoc :busy true) (render!)
-  (-> (.invoke client #js{:capability d/capability :service d/service :operation "read-public-export"}
+  (-> (port/invoke #js{:capability d/capability :service d/service :operation "read-public-export"}
                #js{:input (d/export-url) :init #js{:method "GET"}})
       (.then bounded-text)
       (.then (fn [buf]
@@ -125,7 +113,7 @@
              (take 200 (:rows ex)))]))))
 
 (defn render! []
-  (let [root (.getElementById js/document "app") busy (:busy @state)]
+  (let [root (.getElementById js/document "app") busy (or (:busy @state) (not (port/connected?)))]
     (set! (.. js/document -documentElement -lang) (:locale @state))
     (.replaceChildren root
      (node [:div {:class "awai-ui awai-container"}
@@ -146,4 +134,5 @@
                 (when (:read-at @state) [:p {:class "awai-caption awai-muted"} (str (t :read-at) ": " (time-text (:read-at @state)))])
                 (export-card)))]]))))
 
+(port/listen! render!)
 (render!)

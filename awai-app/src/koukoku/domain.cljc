@@ -14,16 +14,31 @@
 ;; Each read is its own operation with its own trusted user choice. Both
 ;; routes are exact paths with no query: `?refresh=1` would make the server
 ;; sync the registry on our behalf, which this read-only app must not trigger.
+;; restricted-wasm-v1 (KOTOBA-159): every operation carries the disclosure the
+;; consent dialog shows first. Values are written for the user and never
+;; derived from the payload. Nothing is persisted, so withdrawal is "do not
+;; allow" on the next dialog.
+(def disclosure-recipient
+  "Legal name and country of the murakumo.cloud operator. Owner input (KOTOBA-159)."
+  {:recipient "TBD" :country "JP"})
+
+(defn- disclosure [purpose]
+  (merge disclosure-recipient
+         {:data ["IP アドレス" "通信の時刻"] :special-care false :purpose purpose :frequency "one-time"
+          :withdrawal "許可は保存されません。取得のたびに確認画面で選べます。"}))
+
 (def operations
   [{:capability capability :service service :operation "read-inventory" :consent "each-operation"
     :data-categories ["request-ip"]
+    :disclosure (disclosure "広告 bot の広告在庫の公開データを murakumo.cloud から読み、この端末で資金を判定するため。")
     :endpoint {:origin murakumo-origin :routes [{:method "GET" :path inventory-path :query-params []}]}}
    {:capability capability :service service :operation "read-free-status" :consent "each-operation"
     :data-categories ["request-ip"]
+    :disclosure (disclosure "無料枠の資金の公開データを murakumo.cloud から読み、この端末で資金を判定するため。")
     :endpoint {:origin murakumo-origin :routes [{:method "GET" :path free-status-path :query-params []}]}}])
 
 (defn descriptor []
-  {:schema "kotoba.app.client-runtime.v1" :target "browser" :profile "trusted-page-v1" :entry "index.html"
+  {:schema "kotoba.app.client-runtime.v1" :target "browser" :profile "restricted-wasm-v1" :entry "index.html"
    :local-state {:adapter "memory" :schema "itonami.koukoku.local.v1" :version 1}
    :workers [] :operations operations})
 

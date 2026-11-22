@@ -1,6 +1,6 @@
 (ns koukoku.app
   (:require [koukoku.domain :as d] ["@awai/ui" :as ui] [clojure.string :as str]
-            ["@awai/client-runtime" :as runtime] ["@awai/profile-text$default" :as profile-text]))
+            [koukoku.guest-port :as port] ["@awai/profile-text$default" :as profile-text]))
 
 (defonce state (atom {:locale "ja" :notice "" :inventory nil :free nil :busy false :read-at nil}))
 (def node ui/node)
@@ -52,28 +52,14 @@
 (def profile (js/JSON.parse profile-text))
 (def profile-ok (empty? (d/profile-problems profile)))
 
-(def client
-  (let [desc (d/descriptor)]
-    (when (seq (runtime/clientRuntimeProblems desc #js[d/capability] js/location.origin))
-      (throw (js/Error. "canonical client runtime refused descriptor")))
-    (runtime/createClientOperationBroker
-     #js{:runtime desc :requestedCapabilities #js[d/capability] :approvedOperations (:operations desc)
-         :hostSupportedOperations (clj->js (map (fn [o] [(:capability o) (:service o) (:operation o)]) (:operations desc)))
-         :consentHost (runtime/createClientConsentHost)})))
-
-(defn bounded-json [response]
-  (if-not (.-ok response)
-    (js/Promise.reject (js/Error. (str "HTTP " (.-status response))))
-    (let [declared (js/Number (.get (.-headers response) "content-length"))]
-      (if (and (js/Number.isFinite declared) (> declared d/max-response-bytes))
-        (js/Promise.reject (js/Error. "response too large"))
-        (.then (.text response) (fn [text] (if (> (count text) d/max-response-bytes) (throw (js/Error. "response too large")) (js/JSON.parse text))))))))
+;; restricted-wasm-v1: the guest reaches the host broker only through the port.
+(defn bounded-json [m] (js/JSON.parse (port/http-text m d/max-response-bytes)))
 
 (defn notice! [s] (swap! state assoc :notice s) (render!))
 
 (defn read! [operation url on-body]
   (swap! state assoc :busy true) (render!)
-  (-> (.invoke client #js{:capability d/capability :service d/service :operation operation} #js{:input url :init #js{:method "GET"}})
+  (-> (port/invoke #js{:capability d/capability :service d/service :operation operation} #js{:input url :init #js{:method "GET"}})
       (.then bounded-json)
       (.then (fn [body] (on-body body) (swap! state assoc :read-at (js/Date.now)) (notice! (t :fetched))))
       (.catch (fn [e] (notice! (if (re-find #"not approved" (str (.-message e))) (t :denied) (str (t :failed) (or (:reason (ex-data e)) (.-message e)))))))
@@ -126,7 +112,7 @@
       [:dt (t :per-unit)] [:dd (or-unknown (:impressions-per-unit f))]])))
 
 (defn render! []
-  (let [root (.getElementById js/document "app") busy (:busy @state)]
+  (let [root (.getElementById js/document "app") busy (or (:busy @state) (not (port/connected?)))]
     (set! (.. js/document -documentElement -lang) (:locale @state))
     (.replaceChildren root
      (node [:div {:class "awai-ui awai-container"}
@@ -149,4 +135,5 @@
                 (inventory-card)
                 (free-card)))]]))))
 
+(port/listen! render!)
 (render!)

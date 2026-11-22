@@ -14,19 +14,31 @@
 (def export-path "/network-awai/app-itonami-adserver/main/public/adnetwork-scout/advertisers.v1.json")
 (def capability "adnetwork-scout-read")
 (def service "adnetwork-scout-export")
-(def max-response-bytes 2097152)
+;; restricted-wasm-v1: mountRestrictedClientApp bridges at most 1 MiB of text
+;; to the guest, so the export is bounded to 1 MiB (was 2 MiB, KOTOBA-159).
+(def max-response-bytes 1048576)
 (def max-rows 10000)
 (def export-schema "awai.adnetwork-scout.public-export.v1")
 (def fields ["network" "advertiserKey" "advertiserName" "evidenceUrl" "observedAt" "kind"])
 
 ;; One read, one exact path, no query, no redirects.
+;; restricted-wasm-v1 (KOTOBA-159): the disclosure the consent dialog shows
+;; first. raw.githubusercontent.com is served by GitHub, Inc. (United States).
+;; Nothing is persisted, so withdrawal is "do not allow" on the next dialog.
+(def disclosure
+  {:recipient "GitHub, Inc." :country "US" :country-name "アメリカ合衆国"
+   :foreign-info-url "https://www.ppc.go.jp/personalinfo/legal/kaiseihogohou/#gaikoku"
+   :data ["IP アドレス" "通信の時刻"] :special-care false
+   :purpose "公開された広告主の一覧を GitHub から読み、この端末で表示するため。" :frequency "one-time"
+   :withdrawal "許可は保存されません。取得のたびに確認画面で選べます。"})
+
 (def operations
   [{:capability capability :service service :operation "read-public-export" :consent "each-operation"
-    :data-categories ["request-ip"]
+    :data-categories ["request-ip"] :disclosure disclosure
     :endpoint {:origin export-origin :routes [{:method "GET" :path export-path :query-params []}]}}])
 
 (defn descriptor []
-  {:schema "kotoba.app.client-runtime.v1" :target "browser" :profile "trusted-page-v1" :entry "index.html"
+  {:schema "kotoba.app.client-runtime.v1" :target "browser" :profile "restricted-wasm-v1" :entry "index.html"
    :local-state {:adapter "memory" :schema "itonami.koukoku-scout.local.v1" :version 1}
    :workers [] :operations operations})
 
