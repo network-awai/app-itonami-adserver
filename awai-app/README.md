@@ -11,7 +11,11 @@ Tracking: [AWAI-3260](https://linear.app/kotobalabs/issue/AWAI-3260) (this unit)
   - `GET /api/v1/ads/inventory`: the cached campaign registry, whether it was measured, and who funds a placement (`cloud-murakumo.adnetwork/inventory-report`).
   - `GET /api/v1/free/status`: the ad-funded free inference lane and how many campaigns fund it (`cloud-murakumo.free-tier/availability`).
 
-Every read goes through the canonical `kotoba-client-runtime.js` broker and opens its own approval dialog. Denying sends nothing. Nothing refreshes in the background. The app never sends `?refresh=1` (that would make the server sync on the app's behalf) and has no write operations.
+Every read goes through the canonical `kotoba-client-runtime.js` broker and opens its own approval dialog. Denying sends nothing. Nothing refreshes in the background. The app never sends `?refresh=1` (that would make the server sync on the app's behalf).
+
+## On-device recording (AWAI-420, owner approval 2026-11-23)
+
+Four local-only recording screens, all through the same broker as browser-action operations (no fetch, so no new network origin): 申請 `record-application`, 審査 `set-review-state`, 領収 `record-receipt`, イベント・入金記録 `record-ledger-event`. Each write opens its own approval dialog; denying writes nothing. Records persist in local-state (`localstorage`, schema `itonami.koukoku.local.v1` v2) and are re-read on reload (`koukoku.domain/parse-store`), which re-runs the validators. Review state is the fixed enum `received/under-review/approved/rejected` with guarded transitions and no free-text status (see `koukoku.domain/review-transitions`). Ledger event ids are unique: a repeated id is refused with 「二重登録拒否」. Recording moves no money: receipt and deposit entries keep issuance metadata only, no currency is fixed (AWAI-323 undecided), and the Murakumo-side review bot (AWAI-495) is not part of this app.
 
 ## The funding verdict is fail-closed
 
