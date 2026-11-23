@@ -16,7 +16,10 @@
     // it at build time for public/campaigns.json; scripts/embed_static_json.py
     // embeds those files into the Worker bundle, which serves them at
     // GET /campaigns + /catalog (200, Deprecation/Sunset headers).
-    "CAMPAIGNS_JSON": "[]"
+    // One row: honest house placeholder (paused, zero bid/budget) whose
+    // creative material is yataverse. No paid campaign yet; this row only
+    // proves the registry -> static -> bundle path with count:1.
+    "CAMPAIGNS_JSON": "[{\"id\":\"yataverse-house-placeholder\",\"advertiser\":\"yataverse house placeholder (no paid campaign yet)\",\"creative\":{\"type\":\"text\",\"copy\":\"Placeholder inventory. Creative material is served from yataverse (https://yataverse.com/). No paid campaign yet.\",\"click-url\":\"https://yataverse.com/\"},\"bid\":{\"model\":\"cpm\",\"usd\":\"0.00\"},\"targeting\":{\"tier\":\"general\",\"formats\":[\"rectangle\"],\"placements\":[\"go-wait\"]},\"budget\":{\"total-usd\":\"0.00\",\"spent-micros\":0},\"status\":\"paused\"}]"
     // ADNET_TREASURY_ADDR (advertiser USDC deposits) via wrangler secret/var.
   }
 }

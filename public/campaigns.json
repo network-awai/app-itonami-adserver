@@ -3,10 +3,38 @@
  "source": {
   "file": "wrangler.jsonc",
   "var": "CAMPAIGNS_JSON",
-  "inputsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  "inputsSha256": "bb9897fd4f2f84846b959f3db3e87f5013fff7cd4bd39c6c53443c9e489d09e1"
  },
- "generatedAt": "2026-11-22T22:36:17Z",
- "count": 0,
+ "generatedAt": "2026-11-23T03:41:12Z",
+ "count": 1,
  "withheld": 0,
- "campaigns": []
+ "campaigns": [
+  {
+   "id": "yataverse-house-placeholder",
+   "advertiser": "yataverse house placeholder (no paid campaign yet)",
+   "creative": {
+    "type": "text",
+    "copy": "Placeholder inventory. Creative material is served from yataverse (https://yataverse.com/). No paid campaign yet.",
+    "click-url": "https://yataverse.com/"
+   },
+   "bid": {
+    "model": "cpm",
+    "usd": "0.00"
+   },
+   "targeting": {
+    "tier": "general",
+    "formats": [
+     "rectangle"
+    ],
+    "placements": [
+     "go-wait"
+    ]
+   },
+   "budget": {
+    "total-usd": "0.00",
+    "spent-micros": 0
+   },
+   "status": "paused"
+  }
+ ]
 }

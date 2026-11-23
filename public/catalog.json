@@ -3,11 +3,13 @@
  "source": {
   "file": "wrangler.jsonc",
   "var": "CAMPAIGNS_JSON",
-  "inputsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  "inputsSha256": "bb9897fd4f2f84846b959f3db3e87f5013fff7cd4bd39c6c53443c9e489d09e1"
  },
- "generatedAt": "2026-11-22T22:36:17Z",
- "campaigns": 0,
- "slots": [],
+ "generatedAt": "2026-11-23T03:41:12Z",
+ "campaigns": 1,
+ "slots": [
+  "go-wait"
+ ],
  "billing": "USDC on Base via x402 prepaid deposits",
  "registry": "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json",
  "campaignsUrl": "https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json",
