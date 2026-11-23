@@ -20,10 +20,14 @@ its ops-LLM ⊣ CertGovernor loop); campaigns arrive here as `CAMPAIGNS_JSON`.
 GET  /serve?slot=&tier=&format=&geo=   → {kind:paid|house, creative, campaign-id}
 POST /event {campaign-id, kind, placement}  → {charge-micros, event}
 POST /topup {tx}                        → verify an advertiser's USDC deposit on-chain
-GET  /campaigns                         → the registry itself (public creative + bid + targeting + budget); 503 + count null when CAMPAIGNS_JSON is unreadable
-GET  /catalog                           → campaign count + slots + billing
+GET  /campaigns                         → 200, deprecated (see below); successor = static file
+GET  /catalog                           → 200, deprecated (see below); successor = static file
 GET  /health
 ```
+
+`/event` + `/topup` keep their existing behaviour: nothing is recorded (the
+accrual store is unbound by design; real charging is an AWAI-420 stage — see
+`docs/worker-inventory.md`).
 
 ## Campaign registry (`CAMPAIGNS_JSON`, no keys)
 
@@ -36,6 +40,40 @@ GET  /health
 ```
 
 `ADNET_TREASURY_ADDR` (advertiser USDC deposits) via `wrangler secret`.
+
+## Static campaign list (owner decision 2026-11-23)
+
+The list is a static build artifact, never request-time generation. The single
+source is `CAMPAIGNS_JSON` in `wrangler.jsonc`; `scripts/campaigns_static_export.py`
+parses it at build time and writes `public/campaigns.json` (+ `.sha256`) and
+`public/catalog.json` (+ `.sha256`), each embedding `generatedAt` and the
+sha256 of the input registry. Merge = publish (same convention as the scout
+export): after merging, readers fetch
+
+- `https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/campaigns.json`
+- `https://raw.githubusercontent.com/network-awai/app-itonami-adserver/main/public/catalog.json`
+
+with a digest check against the `.sha256` sidecar. No HTML view: this repo has
+no static-site home (`public/` is data-only), so an HTML copy would go stale.
+The Worker embeds those bytes at build time
+(`scripts/embed_static_json.py` → `src/adserver/static_content.cljs`, run by
+`npm run build` before shadow-cljs) and serves them at `GET /campaigns` /
+`GET /catalog` with status 200, the static content plus the envelope fields
+`service`/`ok`/`generated-at`, and headers `Deprecation: true`,
+`Sunset: Thu, 31 Dec 2026 00:00:00 GMT` (2026-12-31),
+`Link: <static URL>; rel="successor-version"`.
+
+```bash
+python3 scripts/campaigns_static_export.py --out public   # regenerate from wrangler.jsonc
+python3 scripts/embed_static_json.py                      # re-embed into the Worker bundle
+git diff --stat public src/adserver/static_content.cljs   # review before committing
+```
+
+**murakumo puller migration:** `cloud-murakumo.adnetwork` still pulls
+`https://ads.x402.nexus/campaigns` on a cron. That route keeps answering 200
+with the same body, so the puller keeps working; it migrates to the static
+`campaigns.json` URL above in a separate PR. Only after that migration may
+these routes return 410.
 
 ## Awai app (Koukoku)
 
@@ -66,13 +104,14 @@ npm run deploy     # wrangler deploy -> https://ads.x402.nexus
 Sources are `.cljk` (ADR-2609111500); shadow-cljs reads the git-ignored mirror
 `scripts/cljk-mirror.cljk` derives from `cljk-origin.edn`.
 
-## Live (2026-09-16)
+## Live (2026-09-16, domain restored 2026-11-23)
 
-`https://ads.x402.nexus` (network-awai Cloudflare account, zone `x402.nexus`).
+`https://ads.x402.nexus` (cloud-kotoba Cloudflare account, zone `x402.nexus`;
+single canonical hostname, `custom_domain` route in `wrangler.jsonc`).
 `CAMPAIGNS_JSON` is `[]`: **the registry is empty by fact, not by omission** —
 no advertiser has funded a campaign. `/serve` therefore answers the house ad,
-and `/campaigns` answers `count 0`. The first publisher wired to this host is
-murakumo.cloud (`cloud-murakumo.adnetwork`: pulls `/campaigns` into its KV on
-a cron, serves from that cache, reports `/api/v1/ads/inventory`).
+and the static list answers `count 0`. The first publisher wired to this host is
+murakumo.cloud (`cloud-murakumo.adnetwork`: pulls the static `campaigns.json`
+into its KV on a cron, serves from that cache, reports `/api/v1/ads/inventory`).
 
 Apache-2.0.
