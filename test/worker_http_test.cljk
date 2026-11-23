@@ -15,13 +15,19 @@
 (defn json! [p expected]
   (.then p (fn [r] (a/equal (.-status r) expected (str "status " (.-url r))) (.json r))))
 
-(defn expect-deprecated! [r successor-file]
-  (a/equal (.get (.-headers r) "deprecation") "true" "Deprecation header")
-  (a/equal (.get (.-headers r) "sunset") sunset "Sunset header")
-  (a/equal (.get (.-headers r) "link")
-           (str "<" static-base "/" successor-file ">; rel=\"successor-version\"")
-           "Link successor-version header")
-  r)
+(defn expect-deprecated! [p successor-file]
+  ;; p is the fetch Promise from (call ...): read .headers only on the
+  ;; RESOLVED Response, inside .then, then pass the Response through so
+  ;; json! can status-check and .json it. (Reading .-headers on the Promise
+  ;; itself is undefined and never evaluates the assertions.)
+  (.then p
+    (fn [r]
+      (a/equal (.get (.-headers r) "deprecation") "true" "Deprecation header")
+      (a/equal (.get (.-headers r) "sunset") sunset "Sunset header")
+      (a/equal (.get (.-headers r) "link")
+               (str "<" static-base "/" successor-file ">; rel=\"successor-version\"")
+               "Link successor-version header")
+      r)))
 
 (-> (js/eval (str "import(" (js/JSON.stringify (str (url/pathToFileURL (path/resolve "dist/worker.js")))) ")"))
     (.then (fn [m]
@@ -35,7 +41,7 @@
                             (a/equal (.-schema r) "awai.adserver.campaigns.v1")
                             (a/equal (aget r "generated-at") (aget r "generatedAt") "envelope generated-at == static generatedAt")
                             (a/equal (.-count r) 1 "embedded static content (count 1)")
-                            (a/equal (boolean (.-gone r)) false "no 410-pointer body"))
+                            (a/equal (boolean (.-gone r)) false "no 410-pointer body")))
                    (.then (fn [_]
                             (json! (expect-deprecated! (call w empty-env "GET" "/campaigns") "campaigns.json") 200)))
                    (.then (fn [r]
@@ -55,5 +61,5 @@
                             (json! (call w one-env "GET" "/health") 200)))
                    (.then (fn [r]
                             (a/equal (.-ok r) true)
-                            (println "CHECKED\t6\tadserver http: /campaigns 200 deprecated + static, /catalog 200 deprecated + static; /serve paid + house; /health"))))))))
+                            (println "CHECKED\t6\tadserver http: /campaigns 200 deprecated + static, /catalog 200 deprecated + static; /serve paid + house; /health")))))))
     (.catch (fn [e] (.error js/console e) (js/process.exit 1))))
