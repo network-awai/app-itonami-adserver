@@ -50,7 +50,7 @@ CF_CATALOG_TOKEN=$(op read "op://gftdcojp/gftd.cloudflare/API_TOKEN") \
 
 The helper reads both tokens into the environment for **one child command only** and never prints, echoes, or writes them to a file. Paths (A) and (B) use the same helper; only the catalog-token source differs (`op read`).
 
-Store the service-account token in Keychain under exactly this selector — any other service/account pair reads as absent. Old `gftd.cf` Keychain items are left untouched (neither read nor written) for migration; AWAI tokens live only under `awai.cf`:
+Store the service-account token in Keychain under exactly this selector — any other service/account pair reads as absent. Old `gftd.cf` Keychain items are never read, never written, never deleted, and never existence-checked (no `find-generic-password` probe against `gftd.cf` anywhere in code or tests) — left untouched for migration; AWAI tokens live only under `awai.cf`:
 
 ```bash
 # service=awai.cf, account=OP_SERVICE_ACCOUNT_TOKEN
@@ -64,6 +64,15 @@ security add-generic-password -U -s awai.cf -a CLOUDFLARE_CATALOG_TOKEN -w
 ```
 
 The helper reads it with `security find-generic-password -s awai.cf -a OP_SERVICE_ACCOUNT_TOKEN -w` (only when `OP_SERVICE_ACCOUNT_TOKEN` is not already set in the caller's env — a preset is never overridden), reads the catalog token with `op read "op://gftdcojp/gftd.cloudflare/API_TOKEN"` into `CF_CATALOG_TOKEN` (only when not already set), and `exec`s the child with both in its environment. It traps `EXIT`/`INT`/`TERM` to `unset` any vars it injected, and the `exec` means the injected values exist only in the child process and die with it — nothing persists in the invoking shell after exit.
+
+Keychain ↔ 1Password correspondence:
+
+| Keychain | 1Password | Purpose |
+| --- | --- | --- |
+| `service=awai.cf` `account=OP_SERVICE_ACCOUNT_TOKEN` | vault `gftdcojp`, item `gftd.cloudflare/API_TOKEN` (`op://gftdcojp/gftd.cloudflare/API_TOKEN`) | service-account token |
+| `service=awai.cf` `account=CLOUDFLARE_CATALOG_TOKEN` | vault `gftdcojp`, item `gftd.cloudflare/API_TOKEN` (same ref) | catalog token via `op read` each time |
+
+Keychain is unified under `awai.cf`; 1Password-side names are historical (owner asset, never renamed/moved), hence the apparent mismatch.
 
 ```bash
 # (A) service-account token from Keychain + (B) catalog token via op read:
