@@ -76,3 +76,4 @@ The Addendum shipped the 410 on `/campaigns` + `/catalog` before the static URL 
 
 - **Why nothing broke:** the murakumo puller's refusal path already existed — `cloud-murakumo/src/cloud_murakumo/adnetwork.cljk:42-97` records a refusal and keeps the cache, and `adnetwork_http.cljk:5` handles the non-2xx — so live inventory stayed `lastSync: null, measured: false`.
 - **Rule going forward:** serve the static URL's body first, retire the Worker route after.
+- **Procedure:** before retiring a route in production, verify the successor URL already returns 200 (static body first, retire after).
