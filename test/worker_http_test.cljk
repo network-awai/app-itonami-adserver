@@ -55,5 +55,5 @@
                             (json! (call w one-env "GET" "/health") 200)))
                    (.then (fn [r]
                             (a/equal (.-ok r) true)
-                            (println "CHECKED\t6\tadserver http: /campaigns 200 deprecated + static, /catalog 200 deprecated + static; /serve paid + house; /health")))))))
+                            (println "CHECKED\t6\tadserver http: /campaigns 200 deprecated + static, /catalog 200 deprecated + static; /serve paid + house; /health"))))))))
     (.catch (fn [e] (.error js/console e) (js/process.exit 1))))
