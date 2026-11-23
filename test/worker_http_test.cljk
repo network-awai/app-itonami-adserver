@@ -34,7 +34,7 @@
                             (a/equal (.-ok r) true)
                             (a/equal (.-schema r) "awai.adserver.campaigns.v1")
                             (a/equal (aget r "generated-at") (aget r "generatedAt") "envelope generated-at == static generatedAt")
-                            (a/equal (.-count r) 0 "embedded static content (count 0)")
+                            (a/equal (.-count r) 1 "embedded static content (count 1)")
                             (a/equal (boolean (.-gone r)) false "no 410-pointer body"))
                    (.then (fn [_]
                             (json! (expect-deprecated! (call w empty-env "GET" "/campaigns") "campaigns.json") 200)))
@@ -45,7 +45,7 @@
                             (a/equal (.-service r) "adserver")
                             (a/equal (.-ok r) true)
                             (a/equal (.-schema r) "awai.adserver.catalog.v1")
-                            (a/equal (.-campaigns r) 0 "embedded static catalog count")
+                            (a/equal (.-campaigns r) 1 "embedded static catalog count")
                             (json! (call w one-env "GET" "/serve?slot=go-wait") 200)))
                    (.then (fn [r]
                             (a/equal (.-kind r) "paid") (a/equal (aget r "campaign-id") "cmp-1")
