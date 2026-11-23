@@ -1,0 +1,38 @@
+name: cljk-parse
+
+# Gate: every **/*.cljk file must parse (balanced delimiters / readable).
+# Parse-only check with babashka — no network, no dependencies, ~10 seconds.
+# Does NOT execute tests. Test execution (mirror release) is a future addition.
+# NOTE: this reads ALL top-level forms in each file. The one-liner
+#   bb -e '(doseq [f *command-line-args*] (read-string (slurp f)))'
+# only reads the first form of each file and would miss unbalanced parens
+# later in the file (verified locally: it passes on the currently-broken
+# test/worker_http_test.cljk, while the full read fails it correctly).
+# Reader tags such as #js are tolerated (ignored) so .cljk files using
+# CLJS-style syntax still parse; *read-eval* is false — nothing is evaluated.
+on:
+  pull_request:
+
+jobs:
+  cljk-parse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install babashka
+        run: curl -fsSL https://raw.githubusercontent.com/babashka/babashka/master/install | bash -s -- --version 1.12.218
+
+      - name: Parse every .cljk file (balanced parens / readable)
+        run: |
+          set -euo pipefail
+          files=$(find . -name '*.cljk' | sort)
+          if [ -z "$files" ]; then
+            echo "ERROR: no .cljk files found"
+            exit 1
+          fi
+          echo "$files"
+          for f in $files; do
+            echo "Checking $f"
+            bb -e '(binding [*read-eval* false *default-data-reader-fn* (fn [tag v] v)] (let [r (java.io.PushbackReader. (java.io.FileReader. (first *command-line-args*)))] (loop [] (let [v (read {:eof ::eof} r)] (when (not= v ::eof) (recur))))))' "$f"
+          done
+          echo "All .cljk files parse."
