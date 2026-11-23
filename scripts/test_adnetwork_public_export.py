@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import urllib.error
 import subprocess
 import sys
 import tempfile
@@ -111,18 +112,106 @@ class PathResolution(unittest.TestCase):
             self.assertIn(os.path.join(empty, "datalake_catalog.py"), msg)
 
 
+# --- Fake urllib response usable both with `with` and without ---
+class _FakeResp:
+    def __init__(self, status, body_bytes):
+        self.status = status
+        self._body = body_bytes
+    def read(self):
+        return self._body
+    def getcode(self):
+        return self.status
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
+
+
+def _json_resp(status, obj):
+    return _FakeResp(status, json.dumps(obj).encode())
+
+
 class ReadinessCheck(unittest.TestCase):
-    def _probe(self, *, env_token, keychain_rc, root_scripts):
+    OP_SECRET = "OP-SECRET-TOKEN-9876"
+    ENV_SECRET = "SECRET-VALUE-1234"
+    KEYCHAIN_SECRET = "KEYCHAIN-TOKEN-5678"
+
+    _DEFAULT_VERIFY_OK = {
+        "success": True,
+        "result": {"id": "tok-id-123", "status": "active"},
+        "errors": [], "messages": [],
+    }
+    _DEFAULT_DETAIL_OK = {
+        "success": True,
+        "result": {"id": "tok-id-123", "permission_groups": [
+            {"name": "R2 Data Catalog: Edit"},
+            {"name": "Workers R2 Storage: Edit"},
+        ]},
+        "errors": [], "messages": [],
+    }
+
+    def _probe(self, *, env_token, keychain_rc, root_scripts,
+               keychain_token=None, op_rc=1, op_stdout="", op_stderr="",
+               verify_status=200, verify_body=None, verify_error_body=None,
+               detail_status=200, detail_body=None, detail_error_body=None,
+               raise_on_http_error=True):
+        """Run check_readiness with mocked subprocess (security/op) and urllib.
+
+        Defaults: keychain_rc==0 with no explicit token -> auto keychain secret
+        (new -w contract); op default generic failure; verify/detail default
+        active + permissions ok so legacy present-token tests still exit 0.
+        """
         env = {} if env_token is None else {"CF_CATALOG_TOKEN": env_token}
-        proc = mock.MagicMock(returncode=keychain_rc, stdout="", stderr="")
+        if keychain_token is None:
+            keychain_token = self.KEYCHAIN_SECRET if keychain_rc == 0 else ""
+        if verify_body is None:
+            verify_body = dict(self._DEFAULT_VERIFY_OK)
+        if detail_body is None:
+            detail_body = dict(self._DEFAULT_DETAIL_OK)
+
+        def fake_run(cmd, *a, **kw):
+            proc = mock.MagicMock()
+            if cmd and cmd[0] == "security":
+                proc.returncode = keychain_rc
+                proc.stdout = keychain_token if keychain_rc == 0 else ""
+                proc.stderr = "" if keychain_rc == 0 else "could not find generic password"
+            elif cmd and cmd[0] == "op":
+                proc.returncode = op_rc
+                proc.stdout = op_stdout
+                proc.stderr = op_stderr
+            else:
+                proc.returncode = 1
+                proc.stdout = ""
+                proc.stderr = ""
+            return proc
+
+        def fake_urlopen(req, timeout=30):
+            url = getattr(req, "full_url", str(req))
+            if "/user/tokens/verify" in url:
+                if verify_status >= 400 and raise_on_http_error:
+                    body = verify_error_body if verify_error_body is not None else verify_body
+                    raise urllib.error.HTTPError(
+                        url, verify_status, "error", None,
+                        io.BytesIO(json.dumps(body).encode()))
+                return _json_resp(verify_status, verify_body)
+            if "/user/tokens/" in url:
+                if detail_status >= 400 and raise_on_http_error:
+                    body = detail_error_body if detail_error_body is not None else detail_body
+                    raise urllib.error.HTTPError(
+                        url, detail_status, "error", None,
+                        io.BytesIO(json.dumps(body).encode()))
+                return _json_resp(detail_status, detail_body)
+            raise AssertionError(f"unexpected urlopen: {url}")
+
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.dict(os.environ, env, clear=False), \
                 mock.patch("adnetwork_public_export.subprocess") as sub, \
+                mock.patch("adnetwork_public_export.urllib.request.urlopen", side_effect=fake_urlopen), \
                 contextlib.redirect_stdout(out), \
                 contextlib.redirect_stderr(err):
             if env_token is None:
                 os.environ.pop("CF_CATALOG_TOKEN", None)
-            sub.run.return_value = proc
+            sub.run.side_effect = fake_run
             rc = ex.check_readiness(root_scripts)
         return rc, out.getvalue() + err.getvalue()
 
@@ -137,12 +226,12 @@ class ReadinessCheck(unittest.TestCase):
     def test_env_token_present_no_value_leaked(self):
         with tempfile.TemporaryDirectory() as d:
             root = _make_candidate(d + "-env")
-            rc, text = self._probe(env_token="SECRET-VALUE-1234", keychain_rc=1, root_scripts=root)
+            rc, text = self._probe(env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root)
             self.assertEqual(rc, 0)
             self.assertIn("token=present", text)
             self.assertIn("source=env:CF_CATALOG_TOKEN", text)
             self.assertIn("catalog_read=NOT_ATTEMPTED", text)
-            self.assertNotIn("SECRET-VALUE-1234", text)
+            self.assertNotIn(self.ENV_SECRET, text)
 
     def test_keychain_token_present(self):
         with tempfile.TemporaryDirectory() as d:
@@ -150,6 +239,7 @@ class ReadinessCheck(unittest.TestCase):
             rc, text = self._probe(env_token=None, keychain_rc=0, root_scripts=root)
             self.assertEqual(rc, 0)
             self.assertIn("source=keychain:service=gftd.cf,account=API_TOKEN", text)
+            self.assertNotIn(self.KEYCHAIN_SECRET, text)
 
     def test_missing_module_blocks(self):
         with tempfile.TemporaryDirectory() as d:
@@ -158,6 +248,300 @@ class ReadinessCheck(unittest.TestCase):
             self.assertEqual(rc, 2)
             self.assertIn("module=missing", text)
             self.assertIn("BLOCKED", text)
+
+    # --- new: 1Password path ---
+    def test_1password_success_present_no_leak(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-op-ok")
+            rc, text = self._probe(
+                env_token=None, keychain_rc=1, root_scripts=root,
+                op_rc=0, op_stdout=self.OP_SECRET, op_stderr="")
+            self.assertEqual(rc, 0)
+            self.assertIn("token=present", text)
+            self.assertIn("source=1password:", text)
+            self.assertIn("verify_status=active", text)
+            self.assertIn("permissions_ok=true", text)
+            self.assertNotIn(self.OP_SECRET, text)
+
+    def test_1password_authorization_timeout_verbatim_exit2_blocked(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-op-timeout")
+            for stderr in ("error initializing client: authorization timeout",
+                           "Authorization Timeout"):
+                rc, text = self._probe(
+                    env_token=None, keychain_rc=1, root_scripts=root,
+                    op_rc=1, op_stdout="", op_stderr=stderr)
+                self.assertEqual(rc, 2, text)
+                self.assertIn("token=absent", text)
+                self.assertIn("source=1password:authorization_timeout", text)
+                self.assertIn("catalog_read=BLOCKED", text)
+                self.assertIn("module=found", text)
+                self.assertIn("authorization_timeout: 承認が必要", text)
+                self.assertIn("authorization timeout: 承認が必要", text)
+                self.assertIn("OP_SERVICE_ACCOUNT_TOKEN", text)
+                self.assertNotIn(self.OP_SECRET, text)
+
+    def test_verify_active_permissions_ok_exit0(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-verify-ok")
+            rc, text = self._probe(env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root)
+            self.assertEqual(rc, 0)
+            self.assertIn("verify_status=active", text)
+            self.assertIn("verify_success=true", text)
+            self.assertIn("permissions_ok=true", text)
+            self.assertIn("catalog_read=NOT_ATTEMPTED", text)
+            self.assertNotIn(self.ENV_SECRET, text)
+
+    def test_verify_disabled_verbatim_api_error_exit2(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-verify-disabled")
+            body = {"success": True,
+                    "result": {"id": "tok-id-123", "status": "disabled"},
+                    "errors": [],
+                    "messages": [{"code": 1000, "message": "This API Token is disabled"}]}
+            rc, text = self._probe(
+                env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root,
+                verify_status=200, verify_body=body)
+            self.assertEqual(rc, 2)
+            self.assertIn("verify_status=disabled", text)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertIn("This API Token is disabled", text)
+            self.assertIn("1000", text)
+            self.assertNotIn(self.ENV_SECRET, text)
+
+    def test_verify_403_verbatim_errors_exit2(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-verify-403")
+            body = {"success": False, "result": None,
+                    "errors": [{"code": 10000, "message": "Invalid token"}],
+                    "messages": []}
+            rc, text = self._probe(
+                env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root,
+                verify_status=403, verify_body=body, verify_error_body=body)
+            self.assertEqual(rc, 2)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertIn("Invalid token", text)
+            self.assertIn("10000", text)
+            self.assertNotIn(self.ENV_SECRET, text)
+
+    def test_verify_success_false_exit2(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-verify-false")
+            body = {"success": False,
+                    "result": {"id": "tok-id-123", "status": "active"},
+                    "errors": [{"code": 1001, "message": "Bad token"}],
+                    "messages": []}
+            rc, text = self._probe(
+                env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root,
+                verify_status=200, verify_body=body)
+            self.assertEqual(rc, 2)
+            self.assertIn("verify_success=false", text)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertIn("Bad token", text)
+            self.assertNotIn(self.ENV_SECRET, text)
+
+    def test_missing_permission_verbatim_error_exit2(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-missing-perm")
+            detail = {"success": True,
+                      "result": {"id": "tok-id-123", "permission_groups": [
+                          {"name": "R2 Data Catalog: Edit"}]},
+                      "errors": [], "messages": []}
+            rc, text = self._probe(
+                env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root,
+                detail_status=200, detail_body=detail)
+            self.assertEqual(rc, 2)
+            self.assertIn("verify_status=active", text)
+            self.assertIn("permissions_missing=", text)
+            self.assertIn("Workers R2 Storage: Edit", text)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertNotIn(self.ENV_SECRET, text)
+
+    def test_detail_fetch_403_verbatim_error_exit2(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-detail-403")
+            detail_err = {"success": False, "result": None,
+                          "errors": [{"code": 9109, "message": "Missing permission"}],
+                          "messages": []}
+            rc, text = self._probe(
+                env_token=self.ENV_SECRET, keychain_rc=1, root_scripts=root,
+                detail_status=403, detail_body=detail_err, detail_error_body=detail_err)
+            self.assertEqual(rc, 2)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertIn("Missing permission", text)
+            self.assertIn("9109", text)
+            self.assertNotIn(self.ENV_SECRET, text)
+
+    def test_op_binary_missing_distinct_message(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-op-missing")
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {}, clear=False), \
+                    mock.patch("adnetwork_public_export.subprocess") as sub, \
+                    mock.patch("adnetwork_public_export.urllib.request.urlopen",
+                               side_effect=AssertionError("urlopen must not be called")), \
+                    contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(err):
+                os.environ.pop("CF_CATALOG_TOKEN", None)
+                # security absent, op binary missing
+                def fake_run(cmd, *a, **kw):
+                    proc = mock.MagicMock()
+                    if cmd and cmd[0] == "security":
+                        proc.returncode, proc.stdout, proc.stderr = 1, "", "not found"
+                    elif cmd and cmd[0] == "op":
+                        raise FileNotFoundError("op")
+                    return proc
+                sub.run.side_effect = fake_run
+                rc = ex.check_readiness(root)
+            text = out.getvalue() + err.getvalue()
+            self.assertEqual(rc, 2)
+            self.assertIn("token=absent", text)
+            self.assertIn("BLOCKED", text)
+            self.assertIn("op binary missing", text)
+            self.assertIn("source=1password:op_missing", text)
+
+    def test_op_item_not_found_distinct_message(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-op-notfound")
+            rc, text = self._probe(
+                env_token=None, keychain_rc=1, root_scripts=root,
+                op_rc=1, op_stdout="", op_stderr="item not found: gftd.cloudflare/API_TOKEN")
+            self.assertEqual(rc, 2)
+            self.assertIn("item not found", text)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertNotIn(self.OP_SECRET, text)
+
+    def test_op_vault_access_distinct_message(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = _make_candidate(d + "-op-vault")
+            rc, text = self._probe(
+                env_token=None, keychain_rc=1, root_scripts=root,
+                op_rc=1, op_stdout="", op_stderr="access denied: vault gftdcojp")
+            self.assertEqual(rc, 2)
+            self.assertIn("vault access denied", text)
+            self.assertIn("catalog_read=BLOCKED", text)
+
+    def test_token_never_appears_in_output(self):
+        # Every present-token path must keep the value out of stdout/stderr.
+        cases = [
+            dict(env_token=self.ENV_SECRET, keychain_rc=1),
+            dict(env_token=None, keychain_rc=0),
+            dict(env_token=None, keychain_rc=1, op_rc=0, op_stdout=self.OP_SECRET),
+        ]
+        for i, kw in enumerate(cases):
+            with tempfile.TemporaryDirectory() as d:
+                root = _make_candidate(f"{d}-noleak-{i}")
+                rc, text = self._probe(root_scripts=root, **kw)
+                self.assertEqual(rc, 0, text)
+                for secret in (self.ENV_SECRET, self.KEYCHAIN_SECRET, self.OP_SECRET):
+                    self.assertNotIn(secret, text)
+
+
+class ExportPathTokenResolution(unittest.TestCase):
+    """catalog_rows() must resolve env -> Keychain -w -> 1Password and pass token=."""
+
+    EXPORT_SECRET = "EXPORT-OP-SECRET-4321"
+
+    def _make_export_candidate(self, base):
+        d = os.path.join(base, "candidate")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "datalake_catalog.py"), "w") as f:
+            f.write(
+                '"""stub export module"""\n'
+                'calls = []\n'
+                'class _Table:\n'
+                '    def current_snapshot(self):\n'
+                '        return None\n'
+                '    def scan(self):\n'
+                '        return self\n'
+                '    def to_arrow(self):\n'
+                '        return self\n'
+                '    def to_pylist(self):\n'
+                '        return []\n'
+                'class _Catalog:\n'
+                '    def load_table(self, name):\n'
+                '        return _Table()\n'
+                'def connect(token=None):\n'
+                '    calls.append(token)\n'
+                '    if token is None:\n'
+                '        raise AssertionError("token must be passed explicitly")\n'
+                '    return _Catalog()\n'
+            )
+        return d
+
+    def test_catalog_rows_uses_1password_token_via_connect(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self._make_export_candidate(d + "-exp-ok")
+            seen = []
+
+            class _Table:
+                def current_snapshot(self):
+                    return None
+                def scan(self):
+                    return self
+                def to_arrow(self):
+                    return self
+                def to_pylist(self):
+                    return []
+
+            class _Catalog:
+                def load_table(self, name):
+                    return _Table()
+
+            class _Mod:
+                def connect(self, token=None):
+                    seen.append(token)
+                    if token is None:
+                        raise AssertionError("token must be passed explicitly")
+                    return _Catalog()
+
+            def fake_run(cmd, *a, **kw):
+                proc = mock.MagicMock()
+                if cmd and cmd[0] == "security":
+                    proc.returncode, proc.stdout, proc.stderr = 1, "", "not found"
+                elif cmd and cmd[0] == "op":
+                    proc.returncode, proc.stdout, proc.stderr = 0, self.EXPORT_SECRET, ""
+                return proc
+            err = io.StringIO()
+            with mock.patch.dict(os.environ, {}, clear=False), \
+                    mock.patch("adnetwork_public_export.subprocess") as sub, \
+                    mock.patch.object(ex, "_load_catalog_module", return_value=_Mod()), \
+                    contextlib.redirect_stderr(err), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                os.environ.pop("CF_CATALOG_TOKEN", None)
+                sub.run.side_effect = fake_run
+                rows, snap = ex.catalog_rows(root)
+            self.assertEqual((rows, snap), ([], None))
+            self.assertEqual(seen, [self.EXPORT_SECRET])
+            self.assertNotIn(self.EXPORT_SECRET, err.getvalue())
+
+    def test_catalog_rows_timeout_same_message_exit2(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self._make_export_candidate(d + "-exp-timeout")
+            def fake_run(cmd, *a, **kw):
+                proc = mock.MagicMock()
+                if cmd and cmd[0] == "security":
+                    proc.returncode, proc.stdout, proc.stderr = 1, "", "not found"
+                elif cmd and cmd[0] == "op":
+                    proc.returncode, proc.stdout, proc.stderr = (
+                        1, "", "error initializing client: authorization timeout")
+                return proc
+            err = io.StringIO()
+            with mock.patch.dict(os.environ, {}, clear=False), \
+                    mock.patch("adnetwork_public_export.subprocess") as sub, \
+                    contextlib.redirect_stderr(err), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                os.environ.pop("CF_CATALOG_TOKEN", None)
+                sub.run.side_effect = fake_run
+                with self.assertRaises(SystemExit) as cm:
+                    ex.catalog_rows(root)
+            self.assertEqual(cm.exception.code, 2)
+            text = err.getvalue()
+            self.assertIn("source=1password:authorization_timeout", text)
+            self.assertIn("catalog_read=BLOCKED", text)
+            self.assertIn("authorization_timeout: 承認が必要", text)
+            self.assertIn("authorization timeout: 承認が必要", text)
+
 
 class OfflineRowsRoundTrip(unittest.TestCase):
     def test_rows_mode_byte_stable_and_digest_matches(self):
