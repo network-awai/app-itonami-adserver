@@ -14,19 +14,39 @@
 (def export-path "/network-awai/app-itonami-adserver/main/public/adnetwork-scout/advertisers.v1.json")
 (def capability "adnetwork-scout-read")
 (def service "adnetwork-scout-export")
-(def max-response-bytes 2097152)
+;; restricted-wasm-v1: mountRestrictedClientApp bridges at most 1 MiB of text
+;; to the guest, so the export is bounded to 1 MiB (was 2 MiB, KOTOBA-159).
+(def max-response-bytes 1048576)
 (def max-rows 10000)
 (def export-schema "awai.adnetwork-scout.public-export.v1")
 (def fields ["network" "advertiserKey" "advertiserName" "evidenceUrl" "observedAt" "kind"])
 
 ;; One read, one exact path, no query, no redirects.
+;; restricted-wasm-v1 (KOTOBA-159): the disclosure the consent dialog shows
+;; first (Legal, 2026-11-22). raw.githubusercontent.com is served by GitHub,
+;; Inc. (United States). foreign-info-url is the app's own foreign-information
+;; page, section #us: site/foreign-info.html, published byte-identical in
+;; network-awai/app-disclosures at the permanent URL below (folder = package
+;; id). It is not the PPC list page. The read is one-time and nothing is
+;; saved, so there is no withdrawal place: the runtime (kotoba#1372) says the
+;; permission is for this one time only and is not kept (Legal, 2026-11-22).
+(def foreign-info-url
+  "Permanent; Decision 2026-11-22 (KOTOBA-159)."
+  "https://disclosures.awai.network/network.itonami.koukokuscout/foreign-info.html#us")
+
+(def disclosure
+  {:recipient "GitHub, Inc." :country "US" :country-name "アメリカ合衆国"
+   :foreign-info-url foreign-info-url
+   :data ["端末の IP アドレス" "送信の時刻" "ブラウザの種類と版"] :special-care false
+   :purpose "公開された広告主の一覧を GitHub から読み、この端末で表示するため" :frequency "one-time"})
+
 (def operations
   [{:capability capability :service service :operation "read-public-export" :consent "each-operation"
-    :data-categories ["request-ip"]
+    :data-categories ["request-ip"] :disclosure disclosure
     :endpoint {:origin export-origin :routes [{:method "GET" :path export-path :query-params []}]}}])
 
 (defn descriptor []
-  {:schema "kotoba.app.client-runtime.v1" :target "browser" :profile "trusted-page-v1" :entry "index.html"
+  {:schema "kotoba.app.client-runtime.v1" :target "browser" :profile "restricted-wasm-v1" :entry "index.html"
    :local-state {:adapter "memory" :schema "itonami.koukoku-scout.local.v1" :version 1}
    :workers [] :operations operations})
 

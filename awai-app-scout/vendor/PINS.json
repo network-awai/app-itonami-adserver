@@ -1,9 +1,9 @@
 {
-  "source": "kotoba-lang/kotoba lib/kotoba.wasmWebcomponent/src",
-  "revision": "91ed14c090c90ceff833a868f1685c8840503f76",
+  "source": "kotoba-lang/kotoba lib/kotoba.wasmWebcomponent/src (main; runtime PR 1, kotoba#1372, KOTOBA-968)",
+  "revision": "715b8e5f5caadbc9aee9c04c1b2471006ffcf666",
   "transformation": "none",
   "files": {
-    "kotoba-client-runtime.js": "5a950051c484a992caba0ad9edff780938648f9cade0b18f2d016812742ee6fb",
-    "kotoba-client-consent.css": "eb1caab0619c5ca4428df637ae140bc3774582fa3f0b95a44bbd39b27b6b9086"
+    "kotoba-client-runtime.js": "3e2bc61e8ce544d4cc12fbf7f893be4f7f0367be00e2e3d4ebdee5c3bb410367",
+    "kotoba-client-consent.css": "c76ed61a1a59cc1d84f9ec19afd9f49562df6c28a4c6078ccfb7dec8f34240bb"
   }
 }
