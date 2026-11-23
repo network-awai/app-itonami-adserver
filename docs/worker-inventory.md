@@ -42,6 +42,7 @@ The dispatcher is `src/adserver/worker.cljk:156-171`. Bindings are `wrangler.jso
 2. **Run `/serve` on the publisher side only.** The auction is already shared code (`src/adnet/core.cljk`). Retire `GET /serve` on this host once no publisher calls it.
 3. **Decide the ledger** before `/event` or `/topup` are described as billing. This is an AWAI-420 stage (real charging) and needs owner approval. Until then, both routes should say in their response that nothing is recorded.
 4. **Retire the Worker or fix its domain.** This is a production change and needs separate approval.
+5. **Serve the static URL's body first, then retire the Worker route.** The 2026-11-23 change shipped the 410 on `/campaigns` + `/catalog` before the static URL had a real body — a 410 order violation; nothing broke only because the murakumo puller's existing refusal path kept the cache (`cloud-murakumo/src/cloud_murakumo/adnetwork.cljk:42-97`, `adnetwork_http.cljk:5`) and live inventory stayed `lastSync: null, measured: false`. See "410 order violation" below.
 
 ## Not covered
 
@@ -68,3 +69,11 @@ Steps 1 and 4 above were approved together on 2026-11-23:
 - **Not done:** no ledger/billing change; `/event` + `/topup` still record
   nothing (AWAI-420 stage, separate approval). `/serve` was kept as-is per
   the owner scope (step 2 above was not part of this change).
+
+## 410 order violation (2026-11-23)
+
+The Addendum shipped the 410 on `/campaigns` + `/catalog` before the static URL had a real body — the opposite of the order in "Suggested order" above.
+
+- **Why nothing broke:** the murakumo puller's refusal path already existed — `cloud-murakumo/src/cloud_murakumo/adnetwork.cljk:42-97` records a refusal and keeps the cache, and `adnetwork_http.cljk:5` handles the non-2xx — so live inventory stayed `lastSync: null, measured: false`.
+- **Rule going forward:** serve the static URL's body first, retire the Worker route after.
+- **Procedure:** before retiring a route in production, verify the successor URL already returns 200 (static body first, retire after).
