@@ -46,6 +46,32 @@ CF_CATALOG_TOKEN=$(op read "op://gftdcojp/gftd.cloudflare/API_TOKEN") \
 
 `OP_SERVICE_ACCOUNT_TOKEN` **must be set in the environment before `op read`** for the non-interactive path; the exporter itself never creates one and never falls back to wrangler OAuth.
 
+### Keychain → env helper: `scripts/run_export_with_1password.sh`
+
+The helper reads both tokens into the environment for **one child command only** and never prints, echoes, or writes them to a file. Paths (A) and (B) use the same helper; only the catalog-token source differs (`op read`).
+
+Store the service-account token in Keychain under exactly this selector — any other service/account pair reads as absent:
+
+```bash
+# service=gftd.cf, account=OP_SERVICE_ACCOUNT_TOKEN
+# The value is entered at the prompt; never put it on the command line.
+security add-generic-password -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w
+# Overwrite an existing entry:
+security add-generic-password -U -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w
+```
+
+The helper reads it with `security find-generic-password -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w` (only when `OP_SERVICE_ACCOUNT_TOKEN` is not already set in the caller's env — a preset is never overridden), reads the catalog token with `op read "op://gftdcojp/gftd.cloudflare/API_TOKEN"` into `CF_CATALOG_TOKEN` (only when not already set), and `exec`s the child with both in its environment. It traps `EXIT`/`INT`/`TERM` to `unset` any vars it injected, and the `exec` means the injected values exist only in the child process and die with it — nothing persists in the invoking shell after exit.
+
+```bash
+# (A) service-account token from Keychain + (B) catalog token via op read:
+scripts/run_export_with_1password.sh --check
+scripts/run_export_with_1password.sh --out public/adnetwork-scout   # waits for GO; do not run the real export yet
+# Explicit equivalent (any command after --):
+scripts/run_export_with_1password.sh -- python3 scripts/adnetwork_public_export.py --check
+```
+
+The real export (`--out`) waits for Organizer GO after the owner picks (A)/(B); until then this is code-prep only. If `op read` fails with `authorization timeout`, the helper prints `authorization timeout: 承認が必要` to stderr plus the service-account hint (unlock 1Password for CLI approval, or set `OP_SERVICE_ACCOUNT_TOKEN` via Keychain/env) and exits 2 without printing any value. Other `op` failures get distinct messages naming the cause (binary missing, item not found, vault access denied), still without the value. Stop-rule unchanged: never try another credential on 403, never fall back to wrangler OAuth.
+
 Token-read failures report the cause without ever printing the value:
 
 - `authorization timeout` → `--check` prints `READINESS token=absent source=1password:authorization_timeout catalog_read=BLOCKED` plus `READINESS authorization_timeout: 承認が必要` (1Password CLI の承認・ロック解除が必要です。サービスアカウント OP_SERVICE_ACCOUNT_TOKEN の利用を推奨します) and exits 2. The export path uses the same message.
