@@ -51,7 +51,38 @@
                             (a/equal (.-service r) "adserver")
                             (a/equal (.-ok r) true)
                             (a/equal (.-schema r) "awai.adserver.catalog.v1")
-                            (a/equal (.-campaigns r) 1 "embedded static catalog count")
+                            (a/equal (.-campaigns r) 1 "embedded static catalog count")))
+                   ;; HEAD parity: HEAD must carry the same 200 + Deprecation/Sunset/Link
+                   ;; successor-version headers as GET (headers-only; no body parse for HEAD)
+                   (.then (fn [_]
+                            (expect-deprecated! (call w one-env "HEAD" "/campaigns") "campaigns.json")))
+                   (.then (fn [r]
+                            (a/equal (.-status r) 200 "HEAD /campaigns status")))
+                   (.then (fn [_]
+                            (expect-deprecated! (call w one-env "HEAD" "/catalog") "catalog.json")))
+                   (.then (fn [r]
+                            (a/equal (.-status r) 200 "HEAD /catalog status")))
+                   ;; Explicit GET==HEAD equality (not just each == constants): fetch both
+                   ;; Responses and compare status + deprecation/sunset/link values directly.
+                   (.then (fn [_]
+                            (.then (js/Promise.all #js [(call w one-env "GET" "/campaigns") (call w one-env "HEAD" "/campaigns")])
+                                   (fn [pair]
+                                     (let [g (aget pair 0)
+                                           h (aget pair 1)]
+                                       (a/equal (.-status h) (.-status g) "HEAD==GET status /campaigns")
+                                       (a/equal (.get (.-headers h) "deprecation") (.get (.-headers g) "deprecation") "HEAD==GET deprecation /campaigns")
+                                       (a/equal (.get (.-headers h) "sunset") (.get (.-headers g) "sunset") "HEAD==GET sunset /campaigns")
+                                       (a/equal (.get (.-headers h) "link") (.get (.-headers g) "link") "HEAD==GET link /campaigns"))))))
+                   (.then (fn [_]
+                            (.then (js/Promise.all #js [(call w one-env "GET" "/catalog") (call w one-env "HEAD" "/catalog")])
+                                   (fn [pair]
+                                     (let [g (aget pair 0)
+                                           h (aget pair 1)]
+                                       (a/equal (.-status h) (.-status g) "HEAD==GET status /catalog")
+                                       (a/equal (.get (.-headers h) "deprecation") (.get (.-headers g) "deprecation") "HEAD==GET deprecation /catalog")
+                                       (a/equal (.get (.-headers h) "sunset") (.get (.-headers g) "sunset") "HEAD==GET sunset /catalog")
+                                       (a/equal (.get (.-headers h) "link") (.get (.-headers g) "link") "HEAD==GET link /catalog"))))))
+                   (.then (fn [_]
                             (json! (call w one-env "GET" "/serve?slot=go-wait") 200)))
                    (.then (fn [r]
                             (a/equal (.-kind r) "paid") (a/equal (aget r "campaign-id") "cmp-1")

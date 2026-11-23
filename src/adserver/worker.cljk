@@ -174,8 +174,8 @@
       (and (= m "GET") (= p "/serve"))   (js/Promise.resolve (handle-serve request env))
       (and (= m "POST") (= p "/event"))   (handle-event request env)
       (and (= m "POST") (= p "/topup"))   (handle-topup request env)
-      (and (= m "GET") (= p "/campaigns")) (js/Promise.resolve (handle-campaigns env))
-      (and (= m "GET") (= p "/catalog"))   (js/Promise.resolve (handle-catalog env))
+      (and (contains? #{"GET" "HEAD"} m) (= p "/campaigns")) (js/Promise.resolve (handle-campaigns env))
+      (and (contains? #{"GET" "HEAD"} m) (= p "/catalog"))   (js/Promise.resolve (handle-catalog env))
       (= p "/health")                     (js/Promise.resolve (json {:ok true :service "adserver"} 200))
       :else (js/Promise.resolve (json {:service "adserver" :see "/catalog"} 200)))))
 
