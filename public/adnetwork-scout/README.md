@@ -12,7 +12,7 @@ Public columns are only `network`, `advertiserKey`, `advertiserName`, `evidenceU
 2. **The shared `datalake_catalog` module** from the com-junkawasaki/root checkout. Current layout: `~/github/repos/com-junkawasaki/root/scripts` (the old `~/github/com-junkawasaki/root/scripts` still works as a fallback; pass `--root-scripts DIR` to override).
 3. **A Cloudflare API token** with `R2 Data Catalog: Edit` + `Workers R2 Storage: Edit`, stored in exactly one of these three places (resolved in this order):
    - env var `CF_CATALOG_TOKEN`, or
-   - macOS Keychain item `service=gftd.cf` / `account=API_TOKEN` (read with `security find-generic-password ... -w`), or
+   - macOS Keychain item `service=awai.cf` / `account=CLOUDFLARE_CATALOG_TOKEN` (read with `security find-generic-password ... -w`), or
    - 1Password item `gftd.cloudflare/API_TOKEN` in vault `gftdcojp`, read at runtime with `op read "op://gftdcojp/gftd.cloudflare/API_TOKEN"`.
    - There is no other fallback. If the catalog returns 403, stop — do not try another credential (the scout stop-rule); the owner recreates the token with both required permissions instead.
 
@@ -50,17 +50,20 @@ CF_CATALOG_TOKEN=$(op read "op://gftdcojp/gftd.cloudflare/API_TOKEN") \
 
 The helper reads both tokens into the environment for **one child command only** and never prints, echoes, or writes them to a file. Paths (A) and (B) use the same helper; only the catalog-token source differs (`op read`).
 
-Store the service-account token in Keychain under exactly this selector — any other service/account pair reads as absent:
+Store the service-account token in Keychain under exactly this selector — any other service/account pair reads as absent. Old `gftd.cf` Keychain items are left untouched (neither read nor written) for migration; AWAI tokens live only under `awai.cf`:
 
 ```bash
-# service=gftd.cf, account=OP_SERVICE_ACCOUNT_TOKEN
+# service=awai.cf, account=OP_SERVICE_ACCOUNT_TOKEN
 # The value is entered at the prompt; never put it on the command line.
-security add-generic-password -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w
+security add-generic-password -s awai.cf -a OP_SERVICE_ACCOUNT_TOKEN -w
 # Overwrite an existing entry:
-security add-generic-password -U -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w
+security add-generic-password -U -s awai.cf -a OP_SERVICE_ACCOUNT_TOKEN -w
+# Catalog token stored in Keychain instead of 1Password (same prompt rule):
+security add-generic-password -s awai.cf -a CLOUDFLARE_CATALOG_TOKEN -w
+security add-generic-password -U -s awai.cf -a CLOUDFLARE_CATALOG_TOKEN -w
 ```
 
-The helper reads it with `security find-generic-password -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w` (only when `OP_SERVICE_ACCOUNT_TOKEN` is not already set in the caller's env — a preset is never overridden), reads the catalog token with `op read "op://gftdcojp/gftd.cloudflare/API_TOKEN"` into `CF_CATALOG_TOKEN` (only when not already set), and `exec`s the child with both in its environment. It traps `EXIT`/`INT`/`TERM` to `unset` any vars it injected, and the `exec` means the injected values exist only in the child process and die with it — nothing persists in the invoking shell after exit.
+The helper reads it with `security find-generic-password -s awai.cf -a OP_SERVICE_ACCOUNT_TOKEN -w` (only when `OP_SERVICE_ACCOUNT_TOKEN` is not already set in the caller's env — a preset is never overridden), reads the catalog token with `op read "op://gftdcojp/gftd.cloudflare/API_TOKEN"` into `CF_CATALOG_TOKEN` (only when not already set), and `exec`s the child with both in its environment. It traps `EXIT`/`INT`/`TERM` to `unset` any vars it injected, and the `exec` means the injected values exist only in the child process and die with it — nothing persists in the invoking shell after exit.
 
 ```bash
 # (A) service-account token from Keychain + (B) catalog token via op read:

@@ -117,7 +117,7 @@ class TestHelper(HelperCase):
         with open(self.sec_log) as f:
             self.assertEqual(
                 " ".join(f.read().splitlines()),
-                "find-generic-password -s gftd.cf -a OP_SERVICE_ACCOUNT_TOKEN -w")
+                "find-generic-password -s awai.cf -a OP_SERVICE_ACCOUNT_TOKEN -w")
         with open(self.op_log) as f:
             self.assertEqual(" ".join(f.read().splitlines()), "read " + OP_REFERENCE)
 

@@ -19,7 +19,7 @@
 set -u
 
 OP_REFERENCE="op://gftdcojp/gftd.cloudflare/API_TOKEN"
-KEYCHAIN_SERVICE="gftd.cf"
+KEYCHAIN_SERVICE="awai.cf"
 KEYCHAIN_ACCOUNT="OP_SERVICE_ACCOUNT_TOKEN"
 INJECTED_SA=0
 INJECTED_CF=0
@@ -82,7 +82,7 @@ if [ -z "${CF_CATALOG_TOKEN:-}" ]; then
         case "$LOWER_OUT" in
             *"authorization timeout"*)
                 printf '%s\n' "authorization timeout: 承認が必要" >&2
-                printf '%s\n' "承認が必要です: unlock 1Password for CLI approval, or set OP_SERVICE_ACCOUNT_TOKEN via Keychain (service=gftd.cf account=OP_SERVICE_ACCOUNT_TOKEN) or env for read-only access to vault gftdcojp." >&2
+                printf '%s\n' "承認が必要です: unlock 1Password for CLI approval, or set OP_SERVICE_ACCOUNT_TOKEN via Keychain (service=awai.cf account=OP_SERVICE_ACCOUNT_TOKEN) or env for read-only access to vault gftdcojp." >&2
                 ;;
             *"item"*"not found"*|*"item"*"does not exist"*|*"does not exist"*"item"*)
                 printf '%s\n' "op_error: item not found: ${OP_REFERENCE} が見つかりません" >&2

@@ -238,7 +238,7 @@ class ReadinessCheck(unittest.TestCase):
             root = _make_candidate(d + "-keychain")
             rc, text = self._probe(env_token=None, keychain_rc=0, root_scripts=root)
             self.assertEqual(rc, 0)
-            self.assertIn("source=keychain:service=gftd.cf,account=API_TOKEN", text)
+            self.assertIn("source=keychain:service=awai.cf,account=CLOUDFLARE_CATALOG_TOKEN", text)
             self.assertNotIn(self.KEYCHAIN_SECRET, text)
 
     def test_missing_module_blocks(self):
