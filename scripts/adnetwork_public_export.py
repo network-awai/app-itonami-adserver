@@ -21,7 +21,7 @@ never printed, echoed, written to a file, or put in an exception message.
 Needs an interpreter with pyiceberg (the coordinator's scratch venv:
 pyiceberg 0.12.0, python3.12). The token must carry
 `R2 Data Catalog: Edit` + `Workers R2 Storage: Edit`, stored as env
-`CF_CATALOG_TOKEN` -> Keychain `service=gftd.cf` / `account=API_TOKEN`
+`CF_CATALOG_TOKEN` -> Keychain `service=awai.cf` / `account=CLOUDFLARE_CATALOG_TOKEN`
 -> 1Password `op://gftdcojp/gftd.cloudflare/API_TOKEN`.
 Wrangler's OAuth session is NOT enough: it passes `/v1/config` and fails
 the storage face with 401, so it is not a substitute.
@@ -77,8 +77,8 @@ STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}
 
 # 1Password item: title `gftd.cloudflare/API_TOKEN`, vault `gftdcojp`.
 OP_REFERENCE = "op://gftdcojp/gftd.cloudflare/API_TOKEN"
-KEYCHAIN_SERVICE = "gftd.cf"
-KEYCHAIN_ACCOUNT = "API_TOKEN"
+KEYCHAIN_SERVICE = "awai.cf"
+KEYCHAIN_ACCOUNT = "CLOUDFLARE_CATALOG_TOKEN"
 
 REQUIRED_PERMISSIONS = ("R2 Data Catalog: Edit", "Workers R2 Storage: Edit")
 VERIFY_URL = "https://api.cloudflare.com/client/v4/user/tokens/verify"
@@ -310,8 +310,8 @@ def catalog_rows(root_scripts: str) -> tuple[list[dict], str | None]:
 def _token_presence() -> str | None:
     """Return the token source name if present, else None. Never returns the value.
 
-    Sources, in order: env CF_CATALOG_TOKEN, then Keychain (service=gftd.cf,
-    account=API_TOKEN, read with -w), then 1Password `op read` of the
+    Sources, in order: env CF_CATALOG_TOKEN, then Keychain (service=awai.cf,
+    account=CLOUDFLARE_CATALOG_TOKEN, read with -w), then 1Password `op read` of the
     configured reference. No other fallback (scout stop-rule: on a 403,
     stop, never try another credential).
     """
@@ -431,6 +431,7 @@ def check_readiness(root_scripts: str) -> int:
             print(f"READINESS module={module_state} token=absent source=1password:authorization_timeout catalog_read=BLOCKED")
             print(AUTH_TIMEOUT_MESSAGE)
             print("READINESS next_step: unlock 1Password for CLI approval, or set OP_SERVICE_ACCOUNT_TOKEN")
+            print("  (Keychain service=awai.cf account=OP_SERVICE_ACCOUNT_TOKEN, or env)")
             print(f"  for read-only access to vault gftdcojp, then re-run with CF_CATALOG_TOKEN=$(op read \"{OP_REFERENCE}\")")
             return 2
         if err_kind == "op_missing":
@@ -446,7 +447,7 @@ def check_readiness(root_scripts: str) -> int:
         if err_kind == "op_vault_access":
             print(f"READINESS module={module_state} token=absent source=1password:op_vault_access catalog_read=BLOCKED")
             print("READINESS op_error: vault access denied: vault gftdcojp へのアクセスが不足しています")
-            print("READINESS next_step: grant the service account read-only access to vault gftdcojp via OP_SERVICE_ACCOUNT_TOKEN, or set env CF_CATALOG_TOKEN / Keychain instead")
+            print("READINESS next_step: grant the service account read-only access to vault gftdcojp via OP_SERVICE_ACCOUNT_TOKEN (Keychain service=awai.cf account=OP_SERVICE_ACCOUNT_TOKEN), or set env CF_CATALOG_TOKEN / Keychain service=awai.cf account=CLOUDFLARE_CATALOG_TOKEN instead")
             return 2
         # Generic absence (no usable source; op_error or never reached).
         disp_source = source or "none"
