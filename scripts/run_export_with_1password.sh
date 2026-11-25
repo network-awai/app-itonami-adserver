@@ -23,8 +23,12 @@ KEYCHAIN_SERVICE="awai.cf"
 KEYCHAIN_ACCOUNT="OP_SERVICE_ACCOUNT_TOKEN"
 INJECTED_SA=0
 INJECTED_CF=0
+OP_ERR_FILE=""
 
 cleanup() {
+    if [ -n "${OP_ERR_FILE:-}" ]; then
+        rm -f "$OP_ERR_FILE"
+    fi
     if [ "$INJECTED_SA" = "1" ]; then
         unset OP_SERVICE_ACCOUNT_TOKEN
     fi
@@ -67,19 +71,31 @@ if [ -z "${CF_CATALOG_TOKEN:-}" ]; then
         printf '%s\n' "op_error: op binary missing: op CLI が見つかりません (PATH を確認してください)" >&2
         exit 2
     fi
-    # Combined capture: on success this is the token; on failure it is the
-    # error text, which is only classified below and never printed.
-    OP_OUT="$(op read "$OP_REFERENCE" 2>&1)"
+    # Separate capture: stdout alone is the token candidate. stderr goes to a
+    # temp file used only to classify failures, then deleted immediately; on
+    # success any CLI warnings on stderr are diagnostics and are discarded,
+    # never printed and never passed to the child.
+    OP_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/op-read-stderr.XXXXXX" 2>/dev/null)"
+    if [ -z "$OP_ERR_FILE" ] || [ ! -f "$OP_ERR_FILE" ]; then
+        printf '%s\n' "op_error: temp file unavailable: cannot capture op stderr for failure classification" >&2
+        exit 2
+    fi
+    OP_OUT="$(op read "$OP_REFERENCE" 2>"$OP_ERR_FILE")"
     OP_RC=$?
     if [ "$OP_RC" -eq 0 ] && [ -n "$OP_OUT" ]; then
         CF_CATALOG_TOKEN="$OP_OUT"
         export CF_CATALOG_TOKEN
         INJECTED_CF=1
         unset OP_OUT
+        rm -f "$OP_ERR_FILE"
+        OP_ERR_FILE=""
     else
-        LOWER_OUT="$(printf '%s' "$OP_OUT" | tr '[:upper:]' '[:lower:]')"
-        unset OP_OUT
-        case "$LOWER_OUT" in
+        OP_ERR="$(cat "$OP_ERR_FILE" 2>/dev/null)"
+        rm -f "$OP_ERR_FILE"
+        OP_ERR_FILE=""
+        LOWER_ERR="$(printf '%s' "$OP_ERR" | tr '[:upper:]' '[:lower:]')"
+        unset OP_OUT OP_ERR
+        case "$LOWER_ERR" in
             *"authorization timeout"*)
                 printf '%s\n' "authorization timeout: 承認が必要" >&2
                 printf '%s\n' "承認が必要です: unlock 1Password for CLI approval, or set OP_SERVICE_ACCOUNT_TOKEN via Keychain (service=awai.cf account=OP_SERVICE_ACCOUNT_TOKEN) or env for read-only access to vault gftdcojp." >&2
@@ -94,7 +110,7 @@ if [ -z "${CF_CATALOG_TOKEN:-}" ]; then
                 printf '%s\n' "op_error: op read failed: op read ${OP_REFERENCE} failed (see 1Password CLI; token never printed)" >&2
                 ;;
         esac
-        unset LOWER_OUT
+        unset LOWER_ERR
         exit 2
     fi
 fi

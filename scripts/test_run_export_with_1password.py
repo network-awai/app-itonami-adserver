@@ -196,6 +196,35 @@ class TestHelper(HelperCase):
                 self.assertIn(needle, proc.stderr)
                 self.assert_no_leak(proc, FAKE_SA, FAKE_CF)
 
+    def test_op_success_with_stderr_warning_token_uncontaminated(self):
+        # rc=0 with a warning on stderr: the token must come from stdout only,
+        # so CF_LEN is exactly len(FAKE_CF) — a merged 2>&1 capture would make
+        # it longer — and the warning text must never surface anywhere.
+        warning = "warning: op CLI update available"
+        self.stubs(sec=(1, "", "security: could not find item"),
+                   op=(0, FAKE_CF, warning))
+        proc = self.run_child([], self.base_env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("SA_PRESENT=0", proc.stdout)
+        self.assertIn("CF_PRESENT=1", proc.stdout)
+        self.assertIn("CF_LEN=%d\n" % len(FAKE_CF), proc.stdout)
+        self.assertNotIn(warning, proc.stdout)
+        self.assertNotIn(warning, proc.stderr)
+        self.assert_no_leak(proc, FAKE_SA, FAKE_CF, warning)
+
+    def test_op_success_empty_stdout_fails_closed(self):
+        # rc=0 but empty stdout is not a token: fail closed with exit 2 and
+        # classify from stderr only (generic op_error here).
+        warning = "warning: op CLI update available"
+        self.stubs(sec=(1, "", ""), op=(0, "", warning))
+        proc = self.run_child([], self.base_env())
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("op_error: op read failed", proc.stderr)
+        self.assertNotIn("CF_PRESENT", proc.stdout)
+        self.assertNotIn(warning, proc.stdout)
+        self.assertNotIn(warning, proc.stderr)
+        self.assert_no_leak(proc, FAKE_SA, FAKE_CF, warning)
+
     def test_implicit_check_forwards_to_python3_exporter(self):
         self.stubs(sec=(0, FAKE_SA, ""), op=(0, FAKE_CF, ""))
         py_log = os.path.join(self._tmp.name, "python3.args")
